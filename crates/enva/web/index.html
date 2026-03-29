@@ -1,0 +1,1961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enva — Environment Variable Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>(function(){var t=localStorage.getItem('enva-theme');if(t)document.documentElement.dataset.theme=t;})();</script>
+<style>
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #161822;
+  --bg-tertiary: #1c1f2e;
+  --bg-card: #1e2132;
+  --bg-hover: #252940;
+  --bg-input: #12141e;
+  --border: #2a2e42;
+  --border-focus: #6366f1;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-bg: rgba(99,102,241,0.12);
+  --danger: #ef4444;
+  --danger-bg: rgba(239,68,68,0.12);
+  --success: #22c55e;
+  --success-bg: rgba(34,197,94,0.12);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245,158,11,0.12);
+  --cyan: #06b6d4;
+  --cyan-bg: rgba(6,182,212,0.12);
+  --pink: #ec4899;
+  --pink-bg: rgba(236,72,153,0.12);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+[data-theme="light"] {
+  --bg-primary: #f8f9fc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f3f8;
+  --bg-card: #ffffff;
+  --bg-hover: #eef0f6;
+  --bg-input: #f4f5f9;
+  --border: #dde1ea;
+  --border-focus: #6366f1;
+  --text-primary: #1a1d2e;
+  --text-secondary: #4a5068;
+  --text-muted: #8890a4;
+  --accent: #5b5ef0;
+  --accent-hover: #4f52d9;
+  --accent-bg: rgba(99,102,241,0.08);
+  --danger: #dc2626;
+  --danger-bg: rgba(220,38,38,0.08);
+  --success: #16a34a;
+  --success-bg: rgba(22,163,74,0.08);
+  --warning: #d97706;
+  --warning-bg: rgba(217,119,6,0.08);
+  --cyan: #0891b2;
+  --cyan-bg: rgba(8,145,178,0.08);
+  --pink: #db2777;
+  --pink-bg: rgba(219,39,119,0.08);
+  --shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Outfit',sans-serif; background:var(--bg-primary); color:var(--text-primary); min-height:100vh; }
+code, .mono { font-family:'JetBrains Mono',monospace; }
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+::-webkit-scrollbar-thumb:hover { background:var(--text-muted); }
+
+/* ─── Login ───────────────────────────────────────────── */
+.login-overlay {
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  background: radial-gradient(ellipse at 30% 20%, rgba(99,102,241,0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 80%, rgba(139,92,246,0.06) 0%, transparent 50%),
+              var(--bg-primary);
+  z-index:100; transition: opacity 0.4s, visibility 0.4s;
+}
+.login-overlay.hidden { opacity:0; visibility:hidden; pointer-events:none; }
+.login-card {
+  width:420px; padding:48px 40px; background:var(--bg-card); border:1px solid var(--border);
+  border-radius:16px; box-shadow: var(--shadow), 0 0 60px rgba(99,102,241,0.05);
+}
+.login-logo { display:flex; align-items:center; gap:12px; margin-bottom:32px; }
+.login-logo svg { width:36px; height:36px; }
+.login-logo h1 { font-size:22px; font-weight:600; letter-spacing:-0.5px; }
+.login-logo span { color:var(--accent); }
+.login-vault-path {
+  display:flex; align-items:center; gap:8px; padding:10px 14px;
+  background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius);
+  margin-bottom:20px; font-size:13px; color:var(--text-secondary);
+}
+.login-vault-path .mono { color:var(--text-primary); font-size:12px; }
+.field-group { margin-bottom:20px; }
+.field-group label { display:block; font-size:13px; font-weight:500; color:var(--text-secondary); margin-bottom:6px; }
+.password-wrap { position:relative; display:flex; align-items:center; }
+.password-wrap input {
+  width:100%; padding:12px 44px 12px 14px; background:var(--bg-input); border:1px solid var(--border);
+  border-radius:var(--radius); color:var(--text-primary); font-size:15px; font-family:'Outfit',sans-serif;
+  outline:none; transition:border var(--transition);
+}
+.password-wrap input:focus { border-color:var(--border-focus); }
+.password-wrap .eye-btn {
+  position:absolute; right:10px; background:none; border:none; color:var(--text-muted);
+  cursor:pointer; padding:4px; display:flex; transition:color var(--transition);
+}
+.password-wrap .eye-btn:hover { color:var(--text-primary); }
+.login-btn {
+  width:100%; padding:12px; background:var(--accent); color:#fff; border:none; border-radius:var(--radius);
+  font-size:15px; font-weight:600; cursor:pointer; transition:background var(--transition);
+  font-family:'Outfit',sans-serif;
+}
+.login-btn:hover { background:var(--accent-hover); }
+.login-error {
+  margin-top:16px; padding:10px 14px; background:var(--danger-bg); border:1px solid rgba(239,68,68,0.2);
+  border-radius:var(--radius); font-size:13px; color:var(--danger); display:none; align-items:center; gap:8px;
+}
+.login-error.show { display:flex; }
+
+/* ─── App Shell ───────────────────────────────────────── */
+.app { display:none; height:100vh; }
+.app.active { display:grid; grid-template-columns:260px 1fr; grid-template-rows:56px 1fr; }
+
+/* ─── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  grid-row:1/-1; background:var(--bg-secondary); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.sidebar-header {
+  padding:16px 20px; display:flex; align-items:center; gap:10px;
+  border-bottom:1px solid var(--border);
+}
+.sidebar-header svg { width:24px; height:24px; flex-shrink:0; }
+.sidebar-header h2 { font-size:15px; font-weight:600; letter-spacing:-0.3px; }
+.sidebar-header span { color:var(--accent); }
+.sidebar-section { padding:16px 12px 8px; font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; }
+.app-list { flex:1; overflow-y:auto; padding:0 8px 8px; }
+.app-item {
+  display:flex; align-items:center; justify-content:space-between; padding:10px 12px;
+  border-radius:var(--radius); cursor:pointer; transition:background var(--transition); margin-bottom:2px;
+}
+.app-item:hover { background:var(--bg-hover); }
+.app-item.active { background:var(--accent-bg); color:var(--accent); }
+.app-item .name { font-size:14px; font-weight:500; display:flex; align-items:center; gap:8px; }
+.app-item .name svg { width:16px; height:16px; opacity:0.6; flex-shrink:0; }
+.app-item .count {
+  font-size:12px; padding:2px 8px; background:var(--bg-tertiary); border-radius:12px;
+  color:var(--text-muted); min-width:28px; text-align:center;
+}
+.app-item.active .count { background:rgba(99,102,241,0.2); color:var(--accent); }
+.sidebar-divider { height:1px; background:var(--border); margin:6px 12px; }
+.sidebar-footer { padding:12px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+.sidebar-footer button {
+  width:100%; padding:8px; background:none; border:1px solid var(--border); border-radius:var(--radius);
+  color:var(--text-secondary); font-size:13px; cursor:pointer; font-family:'Outfit',sans-serif;
+  transition:all var(--transition); display:flex; align-items:center; justify-content:center; gap:6px;
+}
+.sidebar-footer button:hover { border-color:var(--text-secondary); color:var(--text-primary); }
+.sidebar-footer .lock-btn:hover { border-color:var(--danger); color:var(--danger); }
+
+/* ─── Topbar ──────────────────────────────────────────── */
+.topbar {
+  display:flex; align-items:center; justify-content:space-between; padding:0 24px;
+  background:var(--bg-secondary); border-bottom:1px solid var(--border);
+}
+.topbar-left { display:flex; align-items:center; gap:16px; }
+.view-title { font-size:15px; font-weight:600; white-space:nowrap; }
+.search-box {
+  display:flex; align-items:center; gap:8px; padding:7px 14px;
+  background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius);
+  width:280px; transition:border var(--transition);
+}
+.search-box:focus-within { border-color:var(--border-focus); }
+.search-box input { background:none; border:none; color:var(--text-primary); font-size:13px; outline:none; width:100%; font-family:'Outfit',sans-serif; }
+.search-box svg { color:var(--text-muted); flex-shrink:0; }
+.topbar-right { display:flex; align-items:center; gap:10px; }
+.btn {
+  padding:8px 16px; border-radius:var(--radius); font-size:13px; font-weight:500; cursor:pointer;
+  border:none; font-family:'Outfit',sans-serif; transition:all var(--transition); display:flex; align-items:center; gap:6px;
+}
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent-hover); }
+.btn-outline { background:none; border:1px solid var(--border); color:var(--text-secondary); }
+.btn-outline:hover { border-color:var(--text-secondary); color:var(--text-primary); }
+.btn-danger { background:var(--danger-bg); color:var(--danger); border:1px solid rgba(239,68,68,0.2); }
+.btn-danger:hover { background:rgba(239,68,68,0.2); }
+.btn-success { background:var(--success-bg); color:var(--success); border:1px solid rgba(34,197,94,0.2); }
+.btn-success:hover { background:rgba(34,197,94,0.2); }
+.btn-sm { padding:5px 12px; font-size:12px; }
+
+/* ─── Main Content ────────────────────────────────────── */
+.main { padding:24px; overflow-y:auto; background:var(--bg-primary); }
+.secrets-table { width:100%; border-collapse:separate; border-spacing:0; }
+.secrets-table th {
+  text-align:left; padding:10px 14px; font-size:11px; font-weight:600; color:var(--text-muted);
+  text-transform:uppercase; letter-spacing:0.8px; border-bottom:1px solid var(--border);
+  position:sticky; top:0; background:var(--bg-primary); z-index:1;
+}
+.secrets-table td { padding:12px 14px; border-bottom:1px solid var(--border); font-size:14px; vertical-align:middle; }
+.secrets-table tr:hover td { background:var(--bg-hover); }
+.alias-cell { font-weight:600; color:var(--accent); }
+.alias-cell .mono { font-size:13px; }
+.key-cell { color:var(--text-secondary); }
+.key-cell .mono { font-size:13px; }
+.secret-value { display:flex; align-items:center; gap:8px; }
+.secret-value .masked { color:var(--text-muted); font-size:13px; letter-spacing:2px; }
+.secret-value .revealed { color:var(--success); font-size:13px; word-break:break-all; }
+.secret-value button {
+  background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px;
+  display:flex; transition:color var(--transition); flex-shrink:0;
+}
+.secret-value button:hover { color:var(--text-primary); }
+.tag-badge {
+  display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500;
+  margin-right:4px; margin-bottom:2px;
+}
+.tag-production { background:var(--success-bg); color:var(--success); }
+.tag-staging { background:var(--warning-bg); color:var(--warning); }
+.tag-database { background:var(--cyan-bg); color:var(--cyan); }
+.tag-auth { background:var(--pink-bg); color:var(--pink); }
+.tag-cache { background:rgba(249,115,22,0.12); color:#f97316; }
+.tag-monitoring { background:rgba(168,85,247,0.12); color:#a855f7; }
+.tag-external { background:rgba(20,184,166,0.12); color:#14b8a6; }
+.tag-worker { background:rgba(234,179,8,0.12); color:#eab308; }
+.tag-cloud { background:rgba(59,130,246,0.12); color:#3b82f6; }
+.tag-aws { background:rgba(251,146,60,0.12); color:#fb923c; }
+.tag-default { background:var(--bg-tertiary); color:var(--text-muted); }
+.app-badge {
+  display:inline-block; padding:2px 10px; background:var(--accent-bg); color:var(--accent);
+  border-radius:12px; font-size:12px; font-weight:500; margin-right:4px; margin-bottom:2px;
+}
+.unassigned-badge {
+  display:inline-flex; align-items:center; gap:4px; padding:2px 10px;
+  background:var(--warning-bg); color:var(--warning); border-radius:12px; font-size:12px; font-weight:500;
+}
+.override-cell .override-label { color:var(--warning); font-size:12px; }
+.override-cell .original-label { color:var(--text-muted); font-size:12px; }
+.timestamp { font-size:12px; color:var(--text-muted); white-space:nowrap; }
+.actions { display:flex; gap:6px; }
+.actions button {
+  padding:6px 10px; border-radius:6px; font-size:12px; cursor:pointer;
+  border:none; font-family:'Outfit',sans-serif; transition:all var(--transition);
+}
+.actions .edit-btn { background:var(--bg-tertiary); color:var(--text-secondary); }
+.actions .edit-btn:hover { background:var(--accent-bg); color:var(--accent); }
+.actions .delete-btn { background:var(--bg-tertiary); color:var(--text-secondary); }
+.actions .delete-btn:hover { background:var(--danger-bg); color:var(--danger); }
+.actions .unassign-btn { background:var(--bg-tertiary); color:var(--text-secondary); }
+.actions .unassign-btn:hover { background:var(--warning-bg); color:var(--warning); }
+
+.empty-state {
+  display:none; flex-direction:column; align-items:center; justify-content:center;
+  padding:80px 20px; text-align:center;
+}
+.empty-state.show { display:flex; }
+.empty-state svg { width:80px; height:80px; color:var(--text-muted); margin-bottom:20px; opacity:0.4; }
+.empty-state h3 { font-size:18px; font-weight:500; margin-bottom:8px; }
+.empty-state p { font-size:14px; color:var(--text-muted); margin-bottom:24px; }
+
+/* ─── Modals ──────────────────────────────────────────── */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px);
+  display:none; align-items:center; justify-content:center; z-index:200;
+}
+.modal-overlay.show { display:flex; }
+.modal {
+  width:560px; max-height:85vh; background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-lg); box-shadow:var(--shadow); display:flex; flex-direction:column;
+}
+.modal-wide { width:640px; }
+.modal-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:20px 24px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.modal-header h3 { font-size:16px; font-weight:600; }
+.modal-close {
+  background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px;
+  display:flex; transition:color var(--transition);
+}
+.modal-close:hover { color:var(--text-primary); }
+.modal-body { padding:24px; overflow-y:auto; flex:1; }
+.modal-body .field-group { margin-bottom:16px; }
+.modal-body .field-group:last-child { margin-bottom:0; }
+.modal-body input, .modal-body textarea, .modal-body select {
+  width:100%; padding:10px 14px; background:var(--bg-input); border:1px solid var(--border);
+  border-radius:var(--radius); color:var(--text-primary); font-size:14px; outline:none;
+  font-family:'Outfit',sans-serif; transition:border var(--transition);
+}
+.modal-body input:disabled { opacity:0.5; cursor:not-allowed; }
+.modal-body textarea { font-family:'JetBrains Mono',monospace; min-height:80px; resize:vertical; font-size:13px; }
+.modal-body input:focus, .modal-body textarea:focus, .modal-body select:focus { border-color:var(--border-focus); }
+.modal-body select { cursor:pointer; }
+.modal-body select option { background:var(--bg-card); }
+.modal-footer {
+  display:flex; justify-content:flex-end; gap:10px;
+  padding:16px 24px; border-top:1px solid var(--border); flex-shrink:0;
+}
+.field-hint { font-size:11px; color:var(--text-muted); margin-top:4px; }
+.field-error { font-size:11px; color:var(--danger); margin-top:4px; display:none; }
+.field-error.show { display:block; }
+.checkbox-grid {
+  display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:8px;
+}
+.checkbox-item {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius);
+  cursor:pointer; transition:all var(--transition); font-size:13px;
+}
+.checkbox-item:hover { border-color:var(--text-muted); }
+.checkbox-item.checked { border-color:var(--accent); background:var(--accent-bg); }
+.checkbox-item input[type="checkbox"] { width:auto; accent-color:var(--accent); cursor:pointer; }
+
+/* ─── Batch Add ──────────────────────────────────────── */
+.batch-table { width:100%; border-collapse:collapse; font-size:13px; }
+.batch-table th {
+  text-align:left; font-size:11px; font-weight:600; color:var(--text-muted);
+  text-transform:uppercase; letter-spacing:0.05em; padding:8px 6px;
+  border-bottom:1px solid var(--border);
+}
+.batch-table td { padding:4px 4px; vertical-align:top; }
+.batch-table input {
+  width:100%; padding:7px 10px; background:var(--bg-input); border:1px solid var(--border);
+  border-radius:var(--radius); color:var(--text-primary); font-size:13px;
+  font-family:'JetBrains Mono',monospace; outline:none; transition:border var(--transition);
+}
+.batch-table input:focus { border-color:var(--border-focus); }
+.batch-table .row-remove {
+  background:none; border:none; color:var(--text-muted); cursor:pointer;
+  padding:6px; display:flex; align-items:center; transition:color var(--transition);
+}
+.batch-table .row-remove:hover { color:var(--danger); }
+.batch-paste-area {
+  width:100%; min-height:90px; padding:10px 14px; background:var(--bg-input);
+  border:1px solid var(--border); border-radius:var(--radius); color:var(--text-primary);
+  font-family:'JetBrains Mono',monospace; font-size:13px; resize:vertical; outline:none;
+}
+.batch-paste-area:focus { border-color:var(--border-focus); }
+.batch-count { font-size:12px; color:var(--text-muted); margin-left:auto; }
+
+/* ─── Assign Modal ────────────────────────────────────── */
+.assign-list { display:flex; flex-direction:column; gap:6px; }
+.assign-row {
+  display:grid; grid-template-columns:auto 1fr 1fr 1fr; gap:12px; align-items:center;
+  padding:10px 12px; background:var(--bg-input); border:1px solid var(--border);
+  border-radius:var(--radius); transition:all var(--transition);
+}
+.assign-row:hover { border-color:var(--text-muted); }
+.assign-row.selected { border-color:var(--accent); background:var(--accent-bg); }
+.assign-row input[type="checkbox"] { width:auto; accent-color:var(--accent); cursor:pointer; }
+.assign-row .alias-label { font-weight:500; font-size:13px; }
+.assign-row .key-label { color:var(--text-muted); font-size:12px; }
+.assign-row input[type="text"] {
+  padding:6px 10px; font-size:12px; background:var(--bg-primary);
+}
+
+/* ─── Import ──────────────────────────────────────────── */
+.dropzone {
+  border:2px dashed var(--border); border-radius:var(--radius-lg); padding:40px;
+  text-align:center; cursor:pointer; transition:all var(--transition);
+}
+.dropzone:hover, .dropzone.dragover { border-color:var(--accent); background:var(--accent-bg); }
+.dropzone svg { width:40px; height:40px; color:var(--text-muted); margin-bottom:12px; }
+.dropzone p { font-size:14px; color:var(--text-secondary); }
+.dropzone .hint { font-size:12px; color:var(--text-muted); margin-top:4px; }
+.import-preview { margin-top:16px; display:none; }
+.import-preview.show { display:block; }
+.import-preview table { width:100%; font-size:13px; border-collapse:collapse; }
+.import-preview th { text-align:left; padding:8px 10px; color:var(--text-muted); font-size:11px; text-transform:uppercase; border-bottom:1px solid var(--border); }
+.import-preview td { padding:8px 10px; border-bottom:1px solid var(--border); }
+.import-preview .mono { font-size:12px; }
+
+/* ─── Toast ───────────────────────────────────────────── */
+.toast-container { position:fixed; top:20px; right:20px; z-index:300; display:flex; flex-direction:column; gap:8px; }
+.toast {
+  padding:12px 20px; background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius); box-shadow:var(--shadow); font-size:13px;
+  display:flex; align-items:center; gap:8px;
+  animation: slideIn 0.3s ease-out, fadeOut 0.3s ease-in 2.7s forwards;
+}
+.toast.toast-success { border-color:rgba(34,197,94,0.3); }
+.toast.toast-success svg { color:var(--success); }
+.toast.toast-error { border-color:rgba(239,68,68,0.3); }
+.toast.toast-error svg { color:var(--danger); }
+@keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+@keyframes fadeOut { from { opacity:1; } to { opacity:0; } }
+
+/* ─── Confirm Dialog ──────────────────────────────────── */
+.confirm-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px);
+  display:none; align-items:center; justify-content:center; z-index:250;
+}
+.confirm-overlay.show { display:flex; }
+.confirm-box {
+  width:400px; padding:28px; background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-lg); box-shadow:var(--shadow); text-align:center;
+}
+.confirm-box h3 { font-size:16px; font-weight:600; margin-bottom:8px; }
+.confirm-box p { font-size:14px; color:var(--text-secondary); margin-bottom:24px; }
+.confirm-box .confirm-actions { display:flex; gap:10px; justify-content:center; }
+</style>
+</head>
+<body>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ─── Login ─────────────────────────────────────────── -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="8" fill="#6366f1" opacity="0.15"/><path d="M18 10a4 4 0 0 0-4 4v2h-1a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1v-2a4 4 0 0 0-4-4zm-2 4a2 2 0 1 1 4 0v2h-4v-2zm2 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" fill="#6366f1"/></svg>
+      <h1>Enva</h1>
+    </div>
+    <div class="field-group">
+      <label data-i18n="vaultPath">Vault path</label>
+      <div class="login-vault-path" style="cursor:text;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+        <input type="text" id="loginVaultPath" class="mono" value="" placeholder="~/.enva/vault.json" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;font-family:'JetBrains Mono',monospace;flex:1;padding:0;">
+      </div>
+    </div>
+    <div class="field-group">
+      <label data-i18n="port">Port</label>
+      <div class="login-vault-path" style="cursor:text;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <input type="number" id="loginPort" class="mono" value="" placeholder="8080" min="1024" max="65535" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;font-family:'JetBrains Mono',monospace;flex:1;padding:0;-moz-appearance:textfield;">
+      </div>
+    </div>
+    <div class="field-group">
+      <label data-i18n="password">Vault Password</label>
+      <div class="password-wrap">
+        <input type="password" id="loginPassword" placeholder="Enter vault password (any text)">
+        <button class="eye-btn" onclick="togglePw('loginPassword')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="field-group" id="confirmPasswordGroup" style="display:none;">
+      <label data-i18n="confirmPassword">Confirm Password</label>
+      <div class="password-wrap">
+        <input type="password" id="loginConfirmPassword" placeholder="">
+        <button class="eye-btn" onclick="togglePw('loginConfirmPassword')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="login-btn" onclick="doLogin()" data-i18n="unlockVault" style="flex:1;">Unlock Vault</button>
+      <button class="login-btn" onclick="doInit()" data-i18n="initVault" id="initVaultBtn" style="flex:1;background:var(--success);">Init Vault</button>
+    </div>
+    <div class="login-error" id="loginError">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      <span id="loginErrorText">Invalid password. Please enter any text to unlock.</span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Main App ──────────────────────────────────────── -->
+<div class="app" id="mainApp">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><rect width="24" height="24" rx="6" fill="#6366f1" opacity="0.15"/><path d="M12 7a2.5 2.5 0 0 0-2.5 2.5V11H9a1.5 1.5 0 0 0-1.5 1.5v4A1.5 1.5 0 0 0 9 18h6a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 15 11h-.5V9.5A2.5 2.5 0 0 0 12 7z" fill="#6366f1"/></svg>
+      <h2>Enva</h2>
+    </div>
+    <div class="sidebar-section">Secrets Pool</div>
+    <div style="padding:0 8px">
+      <div class="app-item active" data-view="all" onclick="switchView('all')">
+        <span class="name">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          All Secrets
+        </span>
+        <span class="count" id="countAll">0</span>
+      </div>
+    </div>
+    <div class="sidebar-section">Applications</div>
+    <div class="app-list" id="appList"></div>
+    <div class="sidebar-footer">
+      <button class="btn-outline" onclick="openAddAppModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add App
+      </button>
+      <button class="lock-btn" onclick="doLogout()" data-i18n="lockVault">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Lock Vault
+      </button>
+      <button class="btn-outline" onclick="openSettingsModal()" style="font-size:12px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span data-i18n="settings">Settings</span>
+      </button>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button class="lock-btn" onclick="toggleTheme()" id="themeToggle" style="flex:1;font-size:12px;">🌙 Dark</button>
+        <button class="lock-btn" onclick="toggleLanguage()" id="langToggle" style="flex:1;font-size:12px;">EN | 中</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="view-title" id="viewTitle">All Secrets</span>
+      <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="searchInput" placeholder="Search aliases, keys, values..." oninput="renderTable()">
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn btn-outline" onclick="openImportModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Import
+      </button>
+      <button class="btn btn-outline" onclick="doExport()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Export
+      </button>
+      <button class="btn btn-primary" id="btnAddSecret" onclick="openSecretModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span data-i18n="addSecret">Add Secret</span>
+      </button>
+      <button class="btn btn-outline" id="btnBatchAdd" onclick="openBatchAddModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        <span data-i18n="batchAdd">Batch Add</span>
+      </button>
+      <button class="btn btn-success" id="btnAssign" style="display:none" onclick="openAssignModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Assign Secret
+      </button>
+    </div>
+  </div>
+
+  <div class="main" id="mainContent">
+    <table class="secrets-table" id="secretsTable">
+      <thead id="tableHead"></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <div class="empty-state" id="emptyState">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+      <h3 id="emptyTitle">No secrets yet</h3>
+      <p id="emptyText">Add your first secret to get started.</p>
+      <button class="btn btn-primary" onclick="openSecretModal()">Add Secret</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Add/Edit Secret Modal ─────────────────────────── -->
+<div class="modal-overlay" id="secretModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="secretModalTitle">Add Secret</h3>
+      <button class="modal-close" onclick="closeModal('secretModal')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group" id="quickPasteGroup">
+        <label data-i18n="quickPaste">Quick Paste</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="quickPasteInput" class="mono" placeholder='export DATABASE_URL=postgres://... or KEY=value' style="flex:1;">
+          <button class="btn btn-outline" onclick="parseQuickPaste()" style="white-space:nowrap;padding:8px 14px;" data-i18n="parse">Parse</button>
+        </div>
+        <div class="field-hint" data-i18n="quickPasteHint">Paste <code>export KEY=VALUE</code> or <code>KEY=VALUE</code> to auto-fill fields below.</div>
+      </div>
+      <div class="field-group">
+        <label>Alias</label>
+        <input type="text" id="secretAlias" placeholder="e.g. prod-db, jwt-secret" class="mono">
+        <div class="field-hint">Lowercase letters, numbers, hyphens only. Immutable after creation.</div>
+        <div class="field-error" id="aliasError">Alias already exists or is invalid.</div>
+      </div>
+      <div class="field-group">
+        <label>Key (env var name)</label>
+        <input type="text" id="secretKey" placeholder="e.g. DATABASE_URL" class="mono" style="text-transform:uppercase">
+        <div class="field-hint">UPPER_SNAKE_CASE convention.</div>
+      </div>
+      <div class="field-group">
+        <label>Value</label>
+        <textarea id="secretValue" placeholder="Secret value..."></textarea>
+      </div>
+      <div class="field-group">
+        <label>Description</label>
+        <input type="text" id="secretDesc" placeholder="Short description of this secret">
+      </div>
+      <div class="field-group">
+        <label>Tags</label>
+        <input type="text" id="secretTags" placeholder="Comma-separated: production, database">
+        <div class="field-hint">Comma-separated tag list.</div>
+      </div>
+      <div class="field-group">
+        <label>Assign to Apps</label>
+        <div class="checkbox-grid" id="secretAppCheckboxes"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('secretModal')">Cancel</button>
+      <button class="btn btn-primary" id="secretModalSave" onclick="saveSecret()">Add Secret</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Batch Add Modal ───────────────────────────────── -->
+<div class="modal-overlay" id="batchAddModal">
+  <div class="modal" style="width:720px;">
+    <div class="modal-header">
+      <h3 data-i18n="batchAdd">Batch Add Secrets</h3>
+      <button class="modal-close" onclick="closeModal('batchAddModal')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label data-i18n="batchPasteLabel">Paste multiple lines</label>
+        <textarea class="batch-paste-area" id="batchPasteArea" placeholder="export DATABASE_URL=postgres://...&#10;REDIS_URL=redis://localhost:6379&#10;JWT_SECRET=my-secret-key"></textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <button class="btn btn-outline" onclick="parseBatchPaste()" style="padding:6px 14px;font-size:12px;" data-i18n="parse">Parse</button>
+          <button class="btn btn-outline" onclick="addBatchRow()" style="padding:6px 14px;font-size:12px;">+ <span data-i18n="addRow">Add Row</span></button>
+          <span class="batch-count" id="batchCount">0 rows</span>
+        </div>
+        <div class="field-hint" data-i18n="batchPasteHint">One per line: <code>export KEY=VALUE</code>, <code>KEY=VALUE</code>, or <code>KEY="VALUE"</code></div>
+      </div>
+      <div style="max-height:320px;overflow-y:auto;margin-top:8px;">
+        <table class="batch-table">
+          <thead><tr><th>Alias</th><th>Key</th><th>Value</th><th style="width:36px;"></th></tr></thead>
+          <tbody id="batchTableBody"></tbody>
+        </table>
+      </div>
+      <div class="field-group" style="margin-top:16px;">
+        <label data-i18n="batchAssignApp">Assign all to app (optional)</label>
+        <select id="batchTargetApp">
+          <option value="">— None —</option>
+        </select>
+      </div>
+      <div class="field-error" id="batchError">Error</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('batchAddModal')" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-primary" id="batchSubmitBtn" onclick="submitBatch()" disabled data-i18n="batchSubmit">Add All</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Assign Secret Modal ───────────────────────────── -->
+<div class="modal-overlay" id="assignModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="assignModalTitle">Assign Secrets</h3>
+      <button class="modal-close" onclick="closeModal('assignModal')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="assign-list" id="assignList"></div>
+      <div id="assignEmpty" style="text-align:center;padding:30px;color:var(--text-muted);display:none">
+        All secrets are already assigned to this app.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('assignModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="doAssign()">Assign Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Import Modal ──────────────────────────────────── -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3>Import from .env</h3>
+      <button class="modal-close" onclick="closeModal('importModal')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <p>Drop .env file here or click to browse</p>
+        <div class="hint">Supports standard KEY=VALUE format</div>
+      </div>
+      <input type="file" id="fileInput" accept=".env,.txt" style="display:none" onchange="handleFileSelect(event)">
+      <div class="field-group" style="margin-top:16px">
+        <label>Assign imported secrets to app (optional)</label>
+        <select id="importTargetApp">
+          <option value="">— No app (pool only) —</option>
+        </select>
+      </div>
+      <div class="import-preview" id="importPreview">
+        <table>
+          <thead><tr><th>Alias (generated)</th><th>Key</th><th>Value (preview)</th></tr></thead>
+          <tbody id="importPreviewBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('importModal')">Cancel</button>
+      <button class="btn btn-primary" id="importBtn" onclick="doImport()" disabled>Import Secrets</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Export Modal ──────────────────────────────────── -->
+<div class="modal-overlay" id="exportModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Export Secrets</h3>
+      <button class="modal-close" onclick="closeModal('exportModal')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label>Export scope</label>
+        <select id="exportScope">
+          <option value="all">All Secrets</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Format</label>
+        <select id="exportFormat">
+          <option value="env">.env (KEY=VALUE)</option>
+          <option value="json">JSON</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Preview</label>
+        <textarea id="exportPreview" readonly style="min-height:200px;background:var(--bg-primary);cursor:default"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('exportModal')">Close</button>
+      <button class="btn btn-primary" onclick="copyExport()">Copy to Clipboard</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Add App Modal ─────────────────────────────────── -->
+<div class="modal-overlay" id="addAppModal">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <h3>Add Application</h3>
+      <button class="modal-close" onclick="closeModal('addAppModal')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label data-i18n="appAlias">Alias (unique identifier)</label>
+        <input type="text" id="newAppName" placeholder="e.g. backend, worker-2">
+        <div class="field-error" id="appNameError">App name already exists.</div>
+      </div>
+      <div class="field-group">
+        <label data-i18n="appPath">App Path (executable to launch)</label>
+        <input type="text" id="newAppPath" placeholder="e.g. python app.py, ./start.sh, node server.js">
+      </div>
+      <div class="field-group">
+        <label data-i18n="description">Description</label>
+        <input type="text" id="newAppDesc" placeholder="Short description">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('addAppModal')" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-primary" onclick="doAddApp()" data-i18n="createApp">Create App</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Settings Modal ────────────────────────────────── -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-header">
+      <h3 data-i18n="settings">Settings</h3>
+      <button class="modal-close" onclick="document.getElementById('settingsModal').classList.remove('show')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label data-i18n="vaultPath">Vault Path</label>
+        <input type="text" id="settingsVaultPath" class="mono" placeholder="~/.enva/vault.json">
+      </div>
+      <div class="field-group">
+        <label data-i18n="port">Port</label>
+        <input type="number" id="settingsPort" placeholder="8080" min="1024" max="65535">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="document.getElementById('settingsModal').classList.remove('show')" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()" data-i18n="save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Confirm Dialog ────────────────────────────────── -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <h3 id="confirmTitle">Confirm</h3>
+    <p id="confirmText">Are you sure?</p>
+    <div class="confirm-actions">
+      <button class="btn btn-outline" onclick="closeConfirm(false)">Cancel</button>
+      <button class="btn btn-danger" id="confirmAction" onclick="closeConfirm(true)">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TRANSLATIONS = {
+  en: {
+    appTitle: 'Enva', loginTitle: 'Enva', loginSubtitle: 'Environment Variable Manager',
+    vaultPath: 'Vault path:', password: 'Password', unlockVault: 'Unlock Vault',
+    allSecrets: 'All Secrets', addApp: '+ Add App', lockVault: 'Lock Vault',
+    searchPlaceholder: 'Search secrets...', importBtn: 'Import', exportBtn: 'Export',
+    addSecret: '+ Add Secret', assignBtn: 'Assign', alias: 'ALIAS', key: 'KEY',
+    apps: 'APPS', updated: 'UPDATED', actions: 'ACTIONS', noSecrets: 'No secrets yet',
+    noSecretsDesc: 'Add your first secret to get started.',
+    addFirstSecret: 'Add First Secret', editSecret: 'Edit Secret', addNewSecret: 'Add New Secret',
+    secretAlias: 'Secret Alias', envVarKey: 'Environment Variable Key',
+    secretValue: 'Secret Value', description: 'Description', tags: 'Tags',
+    cancel: 'Cancel', save: 'Save', delete: 'Delete', confirm: 'Confirm',
+    assignSecrets: 'Assign Secrets', appName: 'App Name', newAppName: 'New App Name',
+    createApp: 'Create App', importSecrets: 'Import Secrets', exportSecrets: 'Export Secrets',
+    format: 'Format', envFormat: 'ENV (.env)', jsonFormat: 'JSON', copyToClipboard: 'Copy to Clipboard',
+    close: 'Close', revealValue: 'Reveal', hideValue: 'Hide', deleteConfirm: 'Are you sure?',
+    yes: 'Yes', no: 'No', secretSaved: 'Secret saved', secretDeleted: 'Secret deleted',
+    appCreated: 'App created', secretsAssigned: 'Secrets assigned', copied: 'Copied!',
+    imported: 'Imported', theme: 'Theme', language: 'Language',
+    settings: 'Settings', port: 'Port', initVault: 'Init Vault', confirmPassword: 'Confirm Password',
+    appAlias: 'Alias (unique identifier)', appPath: 'App Path (executable to launch)',
+    passwordMismatch: 'Passwords do not match.', passwordTooShort: 'Password must be at least 8 characters.',
+    vaultInitialized: 'Vault initialized! Enter password to unlock.',
+    quickPaste: 'Quick Paste', parse: 'Parse',
+    quickPasteHint: 'Paste <code>export KEY=VALUE</code> or <code>KEY=VALUE</code> to auto-fill fields below.',
+    batchAdd: 'Batch Add', batchPasteLabel: 'Paste multiple lines',
+    batchPasteHint: 'One per line: <code>export KEY=VALUE</code>, <code>KEY=VALUE</code>, or <code>KEY="VALUE"</code>',
+    addRow: 'Add Row', batchAssignApp: 'Assign all to app (optional)',
+    batchSubmit: 'Add All'
+  },
+  zh: {
+    appTitle: 'Enva', loginTitle: 'Enva', loginSubtitle: '环境变量管理器',
+    vaultPath: '密钥库路径:', password: '密码', unlockVault: '解锁密钥库',
+    allSecrets: '全部密钥', addApp: '+ 添加应用', lockVault: '锁定密钥库',
+    searchPlaceholder: '搜索密钥...', importBtn: '导入', exportBtn: '导出',
+    addSecret: '+ 添加密钥', assignBtn: '分配', alias: '别名', key: '变量名',
+    apps: '应用', updated: '更新时间', actions: '操作', noSecrets: '暂无密钥',
+    noSecretsDesc: '添加您的第一个密钥以开始使用。',
+    addFirstSecret: '添加第一个密钥', editSecret: '编辑密钥', addNewSecret: '添加新密钥',
+    secretAlias: '密钥别名', envVarKey: '环境变量名', secretValue: '密钥值',
+    description: '描述', tags: '标签', cancel: '取消', save: '保存',
+    delete: '删除', confirm: '确认', assignSecrets: '分配密钥', appName: '应用名称',
+    newAppName: '新应用名称', createApp: '创建应用', importSecrets: '导入密钥',
+    exportSecrets: '导出密钥', format: '格式', envFormat: 'ENV (.env)',
+    jsonFormat: 'JSON', copyToClipboard: '复制到剪贴板', close: '关闭',
+    revealValue: '显示', hideValue: '隐藏', deleteConfirm: '确定要执行此操作吗？',
+    yes: '是', no: '否', secretSaved: '密钥已保存', secretDeleted: '密钥已删除',
+    appCreated: '应用已创建', secretsAssigned: '密钥已分配', copied: '已复制！',
+    imported: '已导入', theme: '主题', language: '语言',
+    settings: '设置', port: '端口', initVault: '初始化密钥库', confirmPassword: '确认密码',
+    appAlias: '别名（唯一标识）', appPath: '应用路径（启动命令）',
+    passwordMismatch: '两次密码不一致。', passwordTooShort: '密码长度至少 8 个字符。',
+    vaultInitialized: '密钥库已初始化！请输入密码解锁。',
+    quickPaste: '快速粘贴', parse: '解析',
+    quickPasteHint: '粘贴 <code>export KEY=VALUE</code> 或 <code>KEY=VALUE</code> 自动填充下方字段。',
+    batchAdd: '批量添加', batchPasteLabel: '粘贴多行',
+    batchPasteHint: '每行一个: <code>export KEY=VALUE</code>、<code>KEY=VALUE</code> 或 <code>KEY="VALUE"</code>',
+    addRow: '添加行', batchAssignApp: '分配到应用（可选）',
+    batchSubmit: '全部添加'
+  }
+};
+
+let currentLang = localStorage.getItem('enva-lang') || 'en';
+let currentTheme = localStorage.getItem('enva-theme') || 'dark';
+
+function setLanguage(lang) {
+  currentLang = lang;
+  document.documentElement.lang = lang;
+  localStorage.setItem('enva-lang', lang);
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (TRANSLATIONS[lang][key]) el.textContent = TRANSLATIONS[lang][key];
+  });
+  const langBtn = document.getElementById('langToggle');
+  if (langBtn) langBtn.textContent = lang === 'en' ? 'EN | 中' : '中 | EN';
+}
+
+function toggleLanguage() {
+  setLanguage(currentLang === 'en' ? 'zh' : 'en');
+}
+
+function setTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('enva-theme', theme);
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = theme === 'dark' ? '🌙 Dark' : '☀️ Light';
+}
+
+function toggleTheme() {
+  setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+}
+
+const SECRETS = {};
+
+const APPS = {};
+
+let currentView = 'all';
+let revealedValues = new Set();
+let editingAlias = null;
+let importData = [];
+let confirmCallback = null;
+let authToken = null;
+
+function apiBase() {
+  const port = localStorage.getItem('enva-port') || location.port || '8080';
+  return `${location.protocol}//${location.hostname}:${port}/api`;
+}
+
+async function apiFetch(path, opts = {}) {
+  const headers = Object.assign({'Content-Type': 'application/json'}, opts.headers || {});
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  const res = await fetch(`${apiBase()}${path}`, Object.assign({}, opts, { headers }));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return data;
+}
+
+/* ─── Utilities ───────────────────────────────────────── */
+function toast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const d = document.createElement('div');
+  d.className = `toast toast-${type}`;
+  const icon = type === 'success'
+    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+  d.innerHTML = icon + `<span>${msg}</span>`;
+  c.appendChild(d);
+  setTimeout(() => d.remove(), 3000);
+}
+
+function timeAgo(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+function maskValue(v) {
+  return '•'.repeat(Math.min(v.length, 20));
+}
+
+function getAppsForSecret(alias) {
+  return Object.entries(APPS).filter(([, a]) => a.secrets.includes(alias)).map(([name]) => name);
+}
+
+function tagClass(tag) {
+  const map = { production:'tag-production', staging:'tag-staging', database:'tag-database',
+    auth:'tag-auth', cache:'tag-cache', monitoring:'tag-monitoring', external:'tag-external',
+    worker:'tag-worker', cloud:'tag-cloud', aws:'tag-aws' };
+  return map[tag] || 'tag-default';
+}
+
+function togglePw(id) {
+  const inp = document.getElementById(id);
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+/* ─── Login / Logout / Init ───────────────────────────── */
+let initMode = false;
+
+function doInit() {
+  if (!initMode) {
+    initMode = true;
+    document.getElementById('confirmPasswordGroup').style.display = '';
+    document.getElementById('initVaultBtn').textContent = TRANSLATIONS[currentLang].confirm || 'Confirm';
+    document.getElementById('initVaultBtn').style.background = 'var(--warning)';
+    document.getElementById('loginPassword').placeholder = TRANSLATIONS[currentLang].password || 'New password (min 8 chars)';
+    return;
+  }
+  const pw = document.getElementById('loginPassword').value;
+  const confirmPw = document.getElementById('loginConfirmPassword').value;
+  const errEl = document.getElementById('loginError');
+  const errText = document.getElementById('loginErrorText');
+  if (pw.length < 8) {
+    errText.textContent = TRANSLATIONS[currentLang].passwordTooShort || 'Password must be at least 8 characters.';
+    errEl.classList.add('show');
+    return;
+  }
+  if (pw !== confirmPw) {
+    errText.textContent = TRANSLATIONS[currentLang].passwordMismatch || 'Passwords do not match.';
+    errEl.classList.add('show');
+    return;
+  }
+  errEl.classList.remove('show');
+  const btn = document.getElementById('initVaultBtn');
+  btn.disabled = true;
+  apiFetch('/vault/init', { method: 'POST', body: JSON.stringify({ password: pw }) })
+    .then(() => {
+      initMode = false;
+      document.getElementById('confirmPasswordGroup').style.display = 'none';
+      btn.textContent = TRANSLATIONS[currentLang].initVault || 'Init Vault';
+      btn.style.background = 'var(--success)';
+      btn.disabled = false;
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginConfirmPassword').value = '';
+      document.getElementById('loginPassword').placeholder = 'Enter vault password (any text)';
+      toast(TRANSLATIONS[currentLang].vaultInitialized || 'Vault initialized! Enter password to unlock.');
+    })
+    .catch(err => {
+      errText.textContent = err.message;
+      errEl.classList.add('show');
+      btn.disabled = false;
+    });
+}
+
+function doLogin() {
+  const pw = document.getElementById('loginPassword').value.trim();
+  const vp = (document.getElementById('loginVaultPath') || {}).value || '';
+  const pt = (document.getElementById('loginPort') || {}).value || '';
+  const errEl = document.getElementById('loginError');
+  const errText = document.getElementById('loginErrorText');
+  if (!pw) {
+    errText.textContent = TRANSLATIONS[currentLang].password
+      ? TRANSLATIONS[currentLang].password + ' required'
+      : 'Password is required.';
+    errEl.classList.add('show');
+    return;
+  }
+  if (vp.trim()) localStorage.setItem('enva-vault-path', vp.trim());
+  if (pt.trim()) localStorage.setItem('enva-port', pt.trim());
+  errEl.classList.remove('show');
+  const loginBtn = document.querySelector('[data-i18n="unlockVault"]');
+  if (loginBtn) loginBtn.disabled = true;
+  apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ password: pw }) })
+    .then(data => {
+      authToken = data.token;
+      if (loginBtn) loginBtn.disabled = false;
+      document.getElementById('loginOverlay').classList.add('hidden');
+      document.getElementById('mainApp').classList.add('active');
+      loadSecretsFromAPI();
+      loadAppsFromAPI();
+    })
+    .catch(err => {
+      if (loginBtn) loginBtn.disabled = false;
+      errText.textContent = err.message;
+      errEl.classList.add('show');
+    });
+}
+
+function doLogout() {
+  if (authToken) {
+    apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
+  }
+  authToken = null;
+  document.getElementById('mainApp').classList.remove('active');
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginConfirmPassword').value = '';
+  document.getElementById('confirmPasswordGroup').style.display = 'none';
+  initMode = false;
+  document.getElementById('initVaultBtn').textContent = TRANSLATIONS[currentLang].initVault || 'Init Vault';
+  document.getElementById('initVaultBtn').style.background = 'var(--success)';
+  revealedValues.clear();
+  Object.keys(SECRETS).forEach(k => delete SECRETS[k]);
+  Object.keys(APPS).forEach(k => delete APPS[k]);
+}
+
+function loadSecretsFromAPI() {
+  apiFetch('/secrets')
+    .then(list => {
+      Object.keys(SECRETS).forEach(k => delete SECRETS[k]);
+      for (const s of list) {
+        SECRETS[s.alias] = {
+          key: s.key, value: s.value_masked || '••••••••',
+          description: s.description || '', tags: s.tags || [],
+          updated: s.updated_at || ''
+        };
+      }
+      renderSidebar();
+      renderTable();
+    })
+    .catch(err => toast(err.message, 'error'));
+}
+
+function loadAppsFromAPI() {
+  apiFetch('/apps')
+    .then(data => {
+      Object.keys(APPS).forEach(k => delete APPS[k]);
+      const appList = data.apps || [];
+      const fetches = appList.map(a => {
+        APPS[a.name] = {
+          description: a.description || '', app_path: a.app_path || '',
+          secrets: [], overrides: {}
+        };
+        return apiFetch(`/apps/${encodeURIComponent(a.name)}/secrets`)
+          .then(sdata => {
+            APPS[a.name].secrets = (sdata.secrets || []).map(s => s.alias);
+          })
+          .catch(err => toast(`Failed to load secrets for ${a.name}: ${err.message}`, 'error'));
+      });
+      return Promise.all(fetches);
+    })
+    .then(() => { renderSidebar(); renderTable(); })
+    .catch(err => toast(err.message, 'error'));
+}
+
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+document.getElementById('quickPasteInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); parseQuickPaste(); }
+});
+document.getElementById('quickPasteInput').addEventListener('paste', () => {
+  setTimeout(parseQuickPaste, 0);
+});
+
+document.getElementById('batchPasteArea').addEventListener('paste', () => {
+  setTimeout(parseBatchPaste, 0);
+});
+
+/* ─── Sidebar ─────────────────────────────────────────── */
+function renderSidebar() {
+  document.getElementById('countAll').textContent = Object.keys(SECRETS).length;
+  const list = document.getElementById('appList');
+  list.innerHTML = '';
+  for (const [name, app] of Object.entries(APPS)) {
+    const div = document.createElement('div');
+    div.className = 'app-item' + (currentView === name ? ' active' : '');
+    div.dataset.view = name;
+    div.onclick = () => switchView(name);
+    const pathHint = app.app_path ? `<span style="display:block;font-size:10px;color:var(--text-muted);margin-top:1px;font-family:'JetBrains Mono',monospace;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(app.app_path)}</span>` : '';
+    div.innerHTML = `
+      <span class="name" style="flex-direction:column;align-items:flex-start;">
+        <span style="display:flex;align-items:center;gap:6px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          ${name}
+        </span>
+        ${pathHint}
+      </span>
+      <span class="count">${app.secrets.length}</span>`;
+    list.appendChild(div);
+  }
+}
+
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.app-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  const isApp = view !== 'all';
+  document.getElementById('btnAssign').style.display = isApp ? 'flex' : 'none';
+  document.getElementById('viewTitle').textContent = isApp ? `${view} — ${APPS[view]?.description || ''}` : 'All Secrets';
+  document.getElementById('searchInput').value = '';
+  revealedValues.clear();
+  renderTable();
+}
+
+/* ─── Table Rendering ─────────────────────────────────── */
+function renderTable() {
+  const thead = document.getElementById('tableHead');
+  const tbody = document.getElementById('tableBody');
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const isApp = currentView !== 'all';
+
+  if (isApp) {
+    thead.innerHTML = '<tr><th>Alias</th><th>Key</th><th>Injected As</th><th>Value</th><th>Tags</th><th>Updated</th><th>Actions</th></tr>';
+  } else {
+    thead.innerHTML = '<tr><th>Alias</th><th>Key</th><th>Value</th><th>Tags</th><th>Used By</th><th>Updated</th><th>Actions</th></tr>';
+  }
+
+  let aliases;
+  if (isApp) {
+    const app = APPS[currentView];
+    aliases = app ? app.secrets.filter(a => SECRETS[a]) : [];
+  } else {
+    aliases = Object.keys(SECRETS);
+  }
+
+  if (search) {
+    aliases = aliases.filter(alias => {
+      const s = SECRETS[alias];
+      return alias.includes(search) || s.key.toLowerCase().includes(search) ||
+        s.value.toLowerCase().includes(search) || s.description.toLowerCase().includes(search) ||
+        s.tags.some(t => t.includes(search));
+    });
+  }
+
+  tbody.innerHTML = '';
+  const empty = document.getElementById('emptyState');
+  const table = document.getElementById('secretsTable');
+
+  if (aliases.length === 0) {
+    table.style.display = 'none';
+    empty.classList.add('show');
+    if (search) {
+      document.getElementById('emptyTitle').textContent = 'No matches found';
+      document.getElementById('emptyText').textContent = 'Try a different search term.';
+    } else if (isApp) {
+      document.getElementById('emptyTitle').textContent = 'No secrets assigned';
+      document.getElementById('emptyText').textContent = 'Assign secrets from the pool to this app.';
+    } else {
+      document.getElementById('emptyTitle').textContent = 'No secrets yet';
+      document.getElementById('emptyText').textContent = 'Add your first secret to get started.';
+    }
+    return;
+  }
+
+  table.style.display = '';
+  empty.classList.remove('show');
+
+  for (const alias of aliases) {
+    const s = SECRETS[alias];
+    const tr = document.createElement('tr');
+    const revealed = revealedValues.has(alias);
+
+    let injectedCell = '';
+    if (isApp) {
+      const app = APPS[currentView];
+      const override = app.overrides[alias];
+      if (override) {
+        injectedCell = `<td class="override-cell"><span class="mono override-label">${esc(override)}</span></td>`;
+      } else {
+        injectedCell = `<td class="override-cell"><span class="mono original-label">${esc(s.key)}</span></td>`;
+      }
+    }
+
+    const usedByApps = getAppsForSecret(alias);
+    let usedByCell = '';
+    if (!isApp) {
+      if (usedByApps.length === 0) {
+        usedByCell = '<td><span class="unassigned-badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>unassigned</span></td>';
+      } else {
+        usedByCell = '<td>' + usedByApps.map(a => `<span class="app-badge">${esc(a)}</span>`).join('') + '</td>';
+      }
+    }
+
+    const tagsHtml = s.tags.map(t => `<span class="tag-badge ${tagClass(t)}">${esc(t)}</span>`).join('');
+
+    const displayValue = revealed && s._revealedValue !== undefined ? s._revealedValue : s.value;
+    const valueHtml = revealed
+      ? `<span class="mono revealed">${esc(displayValue)}</span>`
+      : `<span class="mono masked">${maskValue(s.value)}</span>`;
+    const eyeIcon = revealed
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+    let actionsHtml;
+    if (isApp) {
+      actionsHtml = `
+        <button class="edit-btn" onclick="openEditSecret('${esc(alias)}')" title="Edit">Edit</button>
+        <button class="unassign-btn" onclick="unassignSecret('${esc(alias)}')" title="Unassign">Unassign</button>`;
+    } else {
+      actionsHtml = `
+        <button class="edit-btn" onclick="openEditSecret('${esc(alias)}')" title="Edit">Edit</button>
+        <button class="delete-btn" onclick="deleteSecret('${esc(alias)}')" title="Delete">Delete</button>`;
+    }
+
+    tr.innerHTML = `
+      <td class="alias-cell"><span class="mono">${esc(alias)}</span></td>
+      <td class="key-cell"><span class="mono">${esc(s.key)}</span></td>
+      ${injectedCell}
+      <td><div class="secret-value">${valueHtml}<button onclick="toggleReveal('${esc(alias)}')">${eyeIcon}</button></div></td>
+      <td>${tagsHtml}</td>
+      ${usedByCell}
+      <td class="timestamp" title="${s.updated}">${timeAgo(s.updated)}</td>
+      <td><div class="actions">${actionsHtml}</div></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function toggleReveal(alias) {
+  if (revealedValues.has(alias)) {
+    revealedValues.delete(alias);
+    renderTable();
+    return;
+  }
+  apiFetch(`/secrets/${encodeURIComponent(alias)}?reveal=true`)
+    .then(data => {
+      if (data.value !== undefined) {
+        SECRETS[alias]._revealedValue = data.value;
+      }
+      revealedValues.add(alias);
+      renderTable();
+    })
+    .catch(err => toast(err.message, 'error'));
+}
+
+/* ─── Quick Paste Parser ─────────────────────────────── */
+function parseQuickPaste() {
+  const raw = document.getElementById('quickPasteInput').value.trim();
+  if (!raw) return;
+
+  let text = raw;
+  if (text.startsWith('export ')) { text = text.substring(7); }
+
+  const eqIdx = text.indexOf('=');
+  if (eqIdx === -1) {
+    toast('No "=" found. Expected format: KEY=VALUE or export KEY=VALUE', 'error');
+    return;
+  }
+
+  const key = text.substring(0, eqIdx).trim();
+  let val = text.substring(eqIdx + 1).trim();
+  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    const q = val[0];
+    val = val.slice(1, -1).replace(q === '"' ? /\\"/g : /\\'/g, q);
+  }
+
+  const alias = key.toLowerCase().replace(/_/g, '-');
+
+  document.getElementById('secretKey').value = key;
+  document.getElementById('secretValue').value = val;
+  if (!document.getElementById('secretAlias').disabled) {
+    document.getElementById('secretAlias').value = alias;
+  }
+  document.getElementById('quickPasteInput').value = '';
+  document.getElementById('secretValue').focus();
+}
+
+/* ─── Secret Modal (Add / Edit) ───────────────────────── */
+function openSecretModal() {
+  editingAlias = null;
+  document.getElementById('secretModalTitle').textContent = 'Add Secret';
+  document.getElementById('secretModalSave').textContent = 'Add Secret';
+  document.getElementById('secretAlias').value = '';
+  document.getElementById('secretAlias').disabled = false;
+  document.getElementById('secretKey').value = '';
+  document.getElementById('secretValue').value = '';
+  document.getElementById('secretDesc').value = '';
+  document.getElementById('secretTags').value = '';
+  document.getElementById('quickPasteInput').value = '';
+  document.getElementById('quickPasteGroup').style.display = '';
+  document.getElementById('aliasError').classList.remove('show');
+  renderAppCheckboxes([]);
+  openModal('secretModal');
+  document.getElementById('quickPasteInput').focus();
+}
+
+function openEditSecret(alias) {
+  editingAlias = alias;
+  const s = SECRETS[alias];
+  document.getElementById('secretModalTitle').textContent = 'Edit Secret';
+  document.getElementById('secretModalSave').textContent = 'Save Changes';
+  document.getElementById('quickPasteGroup').style.display = 'none';
+  document.getElementById('secretAlias').value = alias;
+  document.getElementById('secretAlias').disabled = true;
+  document.getElementById('secretKey').value = s.key;
+  document.getElementById('secretValue').value = '';
+  document.getElementById('secretDesc').value = s.description;
+  document.getElementById('secretTags').value = s.tags.join(', ');
+  document.getElementById('aliasError').classList.remove('show');
+  const assigned = getAppsForSecret(alias);
+  renderAppCheckboxes(assigned);
+  openModal('secretModal');
+  apiFetch(`/secrets/${encodeURIComponent(alias)}?reveal=true`)
+    .then(data => {
+      if (data.value !== undefined) {
+        document.getElementById('secretValue').value = data.value;
+      }
+    })
+    .catch(err => toast(err.message, 'error'));
+  document.getElementById('secretKey').focus();
+}
+
+function renderAppCheckboxes(selected) {
+  const grid = document.getElementById('secretAppCheckboxes');
+  grid.innerHTML = '';
+  for (const name of Object.keys(APPS)) {
+    const checked = selected.includes(name);
+    const div = document.createElement('div');
+    div.className = 'checkbox-item' + (checked ? ' checked' : '');
+    div.innerHTML = `<input type="checkbox" value="${esc(name)}" ${checked ? 'checked' : ''}> ${esc(name)}`;
+    div.onclick = (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      const cb = div.querySelector('input');
+      cb.checked = !cb.checked;
+      div.classList.toggle('checked', cb.checked);
+    };
+    div.querySelector('input').onchange = () => div.classList.toggle('checked', div.querySelector('input').checked);
+    grid.appendChild(div);
+  }
+}
+
+function saveSecret() {
+  const alias = document.getElementById('secretAlias').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const key = document.getElementById('secretKey').value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+  const value = document.getElementById('secretValue').value;
+  const desc = document.getElementById('secretDesc').value.trim();
+  const tags = document.getElementById('secretTags').value.split(',').map(t => t.trim()).filter(Boolean);
+
+  if (!alias || !key || !value) {
+    if (!alias) {
+      document.getElementById('aliasError').textContent = 'Alias is required.';
+      document.getElementById('aliasError').classList.add('show');
+    }
+    return;
+  }
+
+  if (!editingAlias && SECRETS[alias]) {
+    document.getElementById('aliasError').textContent = 'Alias already exists.';
+    document.getElementById('aliasError').classList.add('show');
+    return;
+  }
+
+  const checkboxes = document.querySelectorAll('#secretAppCheckboxes input[type="checkbox"]');
+  const selectedApps = new Set();
+  checkboxes.forEach(cb => { if (cb.checked) selectedApps.add(cb.value); });
+
+  apiFetch(`/secrets/${encodeURIComponent(alias)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ key, value, description: desc, tags })
+  })
+    .then(() => {
+      const assignOps = [];
+      for (const [appName, app] of Object.entries(APPS)) {
+        const has = app.secrets.includes(alias);
+        if (selectedApps.has(appName) && !has) {
+          assignOps.push(apiFetch(`/apps/${encodeURIComponent(appName)}/secrets`, {
+            method: 'PUT', body: JSON.stringify({ secrets: [...app.secrets, alias], overrides: app.overrides })
+          }));
+        } else if (!selectedApps.has(appName) && has) {
+          assignOps.push(apiFetch(`/apps/${encodeURIComponent(appName)}/secrets/${encodeURIComponent(alias)}`, {
+            method: 'DELETE'
+          }));
+        }
+      }
+      return Promise.all(assignOps);
+    })
+    .then(() => {
+      closeModal('secretModal');
+      loadSecretsFromAPI();
+      loadAppsFromAPI();
+      toast(editingAlias ? `Secret "${alias}" updated.` : `Secret "${alias}" added.`);
+    })
+    .catch(err => {
+      document.getElementById('aliasError').textContent = err.message;
+      document.getElementById('aliasError').classList.add('show');
+    });
+}
+
+/* ─── Delete Secret ───────────────────────────────────── */
+function deleteSecret(alias) {
+  showConfirm('Delete Secret', `Delete "${alias}"? This removes it from all apps.`, () => {
+    apiFetch(`/secrets/${encodeURIComponent(alias)}`, { method: 'DELETE' })
+      .then(() => {
+        revealedValues.delete(alias);
+        loadSecretsFromAPI();
+        loadAppsFromAPI();
+        toast(`Secret "${alias}" deleted.`);
+      })
+      .catch(err => toast(err.message, 'error'));
+  });
+}
+
+/* ─── Unassign Secret ─────────────────────────────────── */
+function unassignSecret(alias) {
+  if (!APPS[currentView]) return;
+  apiFetch(`/apps/${encodeURIComponent(currentView)}/secrets/${encodeURIComponent(alias)}`, { method: 'DELETE' })
+    .then(() => {
+      loadSecretsFromAPI();
+      loadAppsFromAPI();
+      toast(`"${alias}" unassigned from ${currentView}.`);
+    })
+    .catch(err => toast(err.message, 'error'));
+}
+
+/* ─── Assign Modal ────────────────────────────────────── */
+function openAssignModal() {
+  const app = APPS[currentView];
+  if (!app) return;
+  document.getElementById('assignModalTitle').textContent = `Assign Secrets to ${currentView}`;
+  const list = document.getElementById('assignList');
+  const emptyMsg = document.getElementById('assignEmpty');
+  list.innerHTML = '';
+
+  const unassigned = Object.keys(SECRETS).filter(a => !app.secrets.includes(a));
+  if (unassigned.length === 0) {
+    emptyMsg.style.display = 'block';
+  } else {
+    emptyMsg.style.display = 'none';
+    for (const alias of unassigned) {
+      const s = SECRETS[alias];
+      const row = document.createElement('div');
+      row.className = 'assign-row';
+      row.innerHTML = `
+        <input type="checkbox" data-alias="${esc(alias)}">
+        <span class="alias-label mono">${esc(alias)}</span>
+        <span class="key-label mono">${esc(s.key)}</span>
+        <input type="text" placeholder="Override env var (optional)" data-override="${esc(alias)}">`;
+      const cb = row.querySelector('input[type="checkbox"]');
+      cb.onchange = () => row.classList.toggle('selected', cb.checked);
+      row.onclick = (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        cb.checked = !cb.checked;
+        row.classList.toggle('selected', cb.checked);
+      };
+      list.appendChild(row);
+    }
+  }
+  openModal('assignModal');
+}
+
+function doAssign() {
+  const app = APPS[currentView];
+  if (!app) return;
+  const newSecrets = [...app.secrets];
+  const newOverrides = Object.assign({}, app.overrides);
+  let count = 0;
+  document.querySelectorAll('#assignList input[type="checkbox"]').forEach(cb => {
+    if (!cb.checked) return;
+    const alias = cb.dataset.alias;
+    if (!newSecrets.includes(alias)) {
+      newSecrets.push(alias);
+      count++;
+    }
+    const overrideInput = document.querySelector(`#assignList input[data-override="${alias}"]`);
+    if (overrideInput) {
+      const ov = overrideInput.value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+      if (ov) { newOverrides[alias] = ov; }
+    }
+  });
+  if (count === 0) { closeModal('assignModal'); return; }
+  apiFetch(`/apps/${encodeURIComponent(currentView)}/secrets`, {
+    method: 'PUT',
+    body: JSON.stringify({ secrets: newSecrets, overrides: newOverrides })
+  })
+    .then(() => {
+      closeModal('assignModal');
+      loadSecretsFromAPI();
+      loadAppsFromAPI();
+      toast(`${count} secret(s) assigned to ${currentView}.`);
+    })
+    .catch(err => toast(err.message, 'error'));
+}
+
+/* ─── Batch Add ──────────────────────────────────────── */
+let batchRows = [];
+
+function openBatchAddModal() {
+  batchRows = [];
+  document.getElementById('batchPasteArea').value = '';
+  document.getElementById('batchError').classList.remove('show');
+  const sel = document.getElementById('batchTargetApp');
+  sel.innerHTML = '<option value="">— None —</option>';
+  for (const name of Object.keys(APPS)) {
+    sel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
+  }
+  renderBatchTable();
+  openModal('batchAddModal');
+  document.getElementById('batchPasteArea').focus();
+}
+
+function parseBatchPaste() {
+  const text = document.getElementById('batchPasteArea').value;
+  if (!text.trim()) return;
+  const lines = text.split('\n');
+  for (const line of lines) {
+    let trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith('export ')) { trimmed = trimmed.substring(7); }
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.substring(0, eqIdx).trim();
+    let val = trimmed.substring(eqIdx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      const q = val[0];
+      val = val.slice(1, -1).replace(q === '"' ? /\\"/g : /\\'/g, q);
+    }
+    const alias = key.toLowerCase().replace(/_/g, '-');
+    batchRows.push({ alias, key, value: val });
+  }
+  document.getElementById('batchPasteArea').value = '';
+  renderBatchTable();
+}
+
+function addBatchRow() {
+  batchRows.push({ alias: '', key: '', value: '' });
+  renderBatchTable();
+  const inputs = document.querySelectorAll('#batchTableBody tr:last-child input');
+  if (inputs.length > 0) inputs[0].focus();
+}
+
+function removeBatchRow(idx) {
+  batchRows.splice(idx, 1);
+  renderBatchTable();
+}
+
+function updateBatchRow(idx, field, value) {
+  if (batchRows[idx]) { batchRows[idx][field] = value; }
+  updateBatchCount();
+}
+
+function renderBatchTable() {
+  const tbody = document.getElementById('batchTableBody');
+  tbody.innerHTML = '';
+  for (let i = 0; i < batchRows.length; i++) {
+    const r = batchRows[i];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" value="${esc(r.alias)}" class="mono" placeholder="alias"
+           oninput="updateBatchRow(${i},'alias',this.value)"></td>
+      <td><input type="text" value="${esc(r.key)}" class="mono" placeholder="KEY"
+           style="text-transform:uppercase" oninput="updateBatchRow(${i},'key',this.value)"></td>
+      <td><input type="text" value="${esc(r.value)}" class="mono" placeholder="value"
+           oninput="updateBatchRow(${i},'value',this.value)"></td>
+      <td><button class="row-remove" onclick="removeBatchRow(${i})" title="Remove">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button></td>`;
+    tbody.appendChild(tr);
+  }
+  updateBatchCount();
+}
+
+function updateBatchCount() {
+  const valid = batchRows.filter(r => r.alias && r.key && r.value).length;
+  document.getElementById('batchCount').textContent = `${valid} / ${batchRows.length} rows`;
+  document.getElementById('batchSubmitBtn').disabled = valid === 0;
+}
+
+async function submitBatch() {
+  const errEl = document.getElementById('batchError');
+  errEl.classList.remove('show');
+  const valid = batchRows.filter(r => r.alias.trim() && r.key.trim() && r.value.trim());
+  if (valid.length === 0) return;
+
+  const btn = document.getElementById('batchSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = `Adding 0/${valid.length}...`;
+
+  let added = 0;
+  const errors = [];
+  const addedAliases = [];
+  for (const r of valid) {
+    const alias = r.alias.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const key = r.key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    try {
+      await apiFetch(`/secrets/${encodeURIComponent(alias)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ key, value: r.value, description: '', tags: [] })
+      });
+      addedAliases.push(alias);
+      added++;
+      btn.textContent = `Adding ${added}/${valid.length}...`;
+    } catch (err) {
+      errors.push(`${alias}: ${err.message}`);
+    }
+  }
+
+  const targetApp = document.getElementById('batchTargetApp').value;
+  if (targetApp && addedAliases.length > 0) {
+    const existing = APPS[targetApp] ? APPS[targetApp].secrets : [];
+    try {
+      await apiFetch(`/apps/${encodeURIComponent(targetApp)}/secrets`, {
+        method: 'PUT',
+        body: JSON.stringify({ secrets: [...existing, ...addedAliases], overrides: {} })
+      });
+    } catch (err) {
+      errors.push(`app assign: ${err.message}`);
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = TRANSLATIONS[currentLang].batchSubmit || 'Add All';
+
+  if (errors.length > 0) {
+    document.getElementById('batchError').textContent = errors.join('; ');
+    errEl.classList.add('show');
+  }
+  if (added > 0) {
+    batchRows = batchRows.filter(r => {
+      const alias = r.alias.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      return !addedAliases.includes(alias);
+    });
+    renderBatchTable();
+    loadSecretsFromAPI();
+    loadAppsFromAPI();
+    toast(`${added} secret(s) added.`);
+    if (errors.length === 0) { closeModal('batchAddModal'); }
+  }
+}
+
+/* ─── Import ──────────────────────────────────────────── */
+function openImportModal() {
+  importData = [];
+  document.getElementById('importPreview').classList.remove('show');
+  document.getElementById('importPreviewBody').innerHTML = '';
+  document.getElementById('importBtn').disabled = true;
+  document.getElementById('fileInput').value = '';
+  const sel = document.getElementById('importTargetApp');
+  sel.innerHTML = '<option value="">— No app (pool only) —</option>';
+  for (const name of Object.keys(APPS)) {
+    sel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
+  }
+  openModal('importModal');
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => parseEnvContent(ev.target.result);
+  reader.readAsText(file);
+}
+
+const dropzone = document.getElementById('dropzone');
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = (ev) => parseEnvContent(ev.target.result);
+    reader.readAsText(file);
+  }
+});
+
+function parseEnvContent(text) {
+  importData = [];
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.substring(0, eqIdx).trim();
+    let val = trimmed.substring(eqIdx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      const q = val[0];
+      val = val.slice(1, -1).replace(q === '"' ? /\\"/g : /\\'/g, q);
+    }
+    const alias = key.toLowerCase().replace(/_/g, '-');
+    importData.push({ alias, key, value: val });
+  }
+
+  const body = document.getElementById('importPreviewBody');
+  body.innerHTML = '';
+  for (const item of importData) {
+    const tr = document.createElement('tr');
+    const preview = item.value.length > 40 ? item.value.substring(0, 40) + '...' : item.value;
+    tr.innerHTML = `
+      <td><span class="mono">${esc(item.alias)}</span></td>
+      <td><span class="mono">${esc(item.key)}</span></td>
+      <td><span class="mono" style="color:var(--text-muted)">${esc(preview)}</span></td>`;
+    body.appendChild(tr);
+  }
+
+  document.getElementById('importPreview').classList.toggle('show', importData.length > 0);
+  document.getElementById('importBtn').disabled = importData.length === 0;
+}
+
+async function doImport() {
+  const targetApp = document.getElementById('importTargetApp').value;
+  let count = 0;
+  const importedAliases = [];
+  try {
+    for (const item of importData) {
+      let alias = item.alias;
+      let suffix = 1;
+      while (SECRETS[alias]) { alias = item.alias + '-' + suffix; suffix++; }
+      await apiFetch(`/secrets/${encodeURIComponent(alias)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ key: item.key, value: item.value, description: '', tags: [] })
+      });
+      importedAliases.push(alias);
+      count++;
+    }
+    if (targetApp && importedAliases.length > 0) {
+      const existing = APPS[targetApp] ? APPS[targetApp].secrets : [];
+      await apiFetch(`/apps/${encodeURIComponent(targetApp)}/secrets`, {
+        method: 'PUT',
+        body: JSON.stringify({ secrets: [...existing, ...importedAliases], overrides: {} })
+      });
+    }
+    closeModal('importModal');
+    loadSecretsFromAPI();
+    loadAppsFromAPI();
+    toast(`Imported ${count} secret(s).`);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+/* ─── Export ──────────────────────────────────────────── */
+function doExport() {
+  const scopeSel = document.getElementById('exportScope');
+  scopeSel.innerHTML = '<option value="all">All Secrets (pool)</option>';
+  for (const name of Object.keys(APPS)) {
+    scopeSel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
+  }
+  if (currentView !== 'all') scopeSel.value = currentView;
+  updateExportPreview();
+  scopeSel.onchange = updateExportPreview;
+  document.getElementById('exportFormat').onchange = updateExportPreview;
+  openModal('exportModal');
+}
+
+async function updateExportPreview() {
+  const scope = document.getElementById('exportScope').value;
+  const format = document.getElementById('exportFormat').value;
+  document.getElementById('exportPreview').value = 'Loading...';
+
+  const aliases = scope === 'all'
+    ? Object.keys(SECRETS)
+    : (APPS[scope] ? APPS[scope].secrets.filter(a => SECRETS[a]) : []);
+
+  try {
+    const revealed = await Promise.all(
+      aliases.map(alias =>
+        apiFetch(`/secrets/${encodeURIComponent(alias)}?reveal=true`)
+          .then(data => {
+            const app = scope !== 'all' ? APPS[scope] : null;
+            const key = (app && app.overrides[alias]) || data.key;
+            return { alias, key, value: data.value || '' };
+          })
+      )
+    );
+
+    let output;
+    if (format === 'env') {
+      output = revealed.map(e => `${e.key}=${e.value}`).join('\n');
+    } else {
+      const obj = {};
+      for (const e of revealed) { obj[e.key] = e.value; }
+      output = JSON.stringify(obj, null, 2);
+    }
+    document.getElementById('exportPreview').value = output;
+  } catch (err) {
+    document.getElementById('exportPreview').value = `Error: ${err.message}`;
+  }
+}
+
+function copyExport() {
+  const text = document.getElementById('exportPreview').value;
+  navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard.')).catch(() => {
+    document.getElementById('exportPreview').select();
+    document.execCommand('copy');
+    toast('Copied to clipboard.');
+  });
+}
+
+/* ─── Add App ─────────────────────────────────────────── */
+function openAddAppModal() {
+  document.getElementById('newAppName').value = '';
+  document.getElementById('newAppPath').value = '';
+  document.getElementById('newAppDesc').value = '';
+  document.getElementById('appNameError').classList.remove('show');
+  openModal('addAppModal');
+  document.getElementById('newAppName').focus();
+}
+
+function doAddApp() {
+  const name = document.getElementById('newAppName').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const appPath = document.getElementById('newAppPath').value.trim();
+  const desc = document.getElementById('newAppDesc').value.trim();
+  if (!name) return;
+  if (APPS[name]) {
+    document.getElementById('appNameError').classList.add('show');
+    return;
+  }
+  apiFetch('/apps', {
+    method: 'POST',
+    body: JSON.stringify({ name, description: desc, app_path: appPath })
+  })
+    .then(() => {
+      closeModal('addAppModal');
+      loadAppsFromAPI();
+      toast(`App "${name}" created.`);
+    })
+    .catch(err => {
+      document.getElementById('appNameError').textContent = err.message;
+      document.getElementById('appNameError').classList.add('show');
+    });
+}
+
+/* ─── Modal Helpers ───────────────────────────────────── */
+function openModal(id) {
+  document.getElementById(id).classList.add('show');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('show');
+  });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
+    const cf = document.getElementById('confirmOverlay');
+    if (cf.classList.contains('show')) closeConfirm(false);
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const secretModal = document.getElementById('secretModal');
+    if (secretModal.classList.contains('show') && document.activeElement.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+      saveSecret();
+    }
+    const addAppModal = document.getElementById('addAppModal');
+    if (addAppModal.classList.contains('show')) {
+      e.preventDefault();
+      doAddApp();
+    }
+  }
+});
+
+/* ─── Confirm Dialog ──────────────────────────────────── */
+function showConfirm(title, text, onConfirm) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmText').textContent = text;
+  confirmCallback = onConfirm;
+  document.getElementById('confirmOverlay').classList.add('show');
+}
+
+function closeConfirm(confirmed) {
+  document.getElementById('confirmOverlay').classList.remove('show');
+  if (confirmed && confirmCallback) confirmCallback();
+  confirmCallback = null;
+}
+
+function openSettingsModal() {
+  const vp = localStorage.getItem('enva-vault-path') || '';
+  const pt = localStorage.getItem('enva-port') || '';
+  document.getElementById('settingsVaultPath').value = vp;
+  document.getElementById('settingsPort').value = pt;
+  document.getElementById('settingsModal').classList.add('show');
+}
+
+function saveSettings() {
+  const vp = document.getElementById('settingsVaultPath').value.trim();
+  const pt = document.getElementById('settingsPort').value.trim();
+  if (vp) localStorage.setItem('enva-vault-path', vp); else localStorage.removeItem('enva-vault-path');
+  if (pt) localStorage.setItem('enva-port', pt); else localStorage.removeItem('enva-port');
+  document.getElementById('settingsModal').classList.remove('show');
+  toast(TRANSLATIONS[currentLang].secretSaved || 'Saved');
+}
+
+setTheme(currentTheme);
+setLanguage(currentLang);
+(function initLoginFields() {
+  const savedVp = localStorage.getItem('enva-vault-path');
+  const savedPort = localStorage.getItem('enva-port');
+  const vpEl = document.getElementById('loginVaultPath');
+  const ptEl = document.getElementById('loginPort');
+  if (vpEl && savedVp) vpEl.value = savedVp;
+  if (ptEl && savedPort) ptEl.value = savedPort;
+})();
+</script>
+</body>
+</html>

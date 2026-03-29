@@ -1,0 +1,91 @@
+stages:
+  - lint
+  - test
+  - build
+  - bench
+
+variables:
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-${CI_JOB_NAME}"
+  paths:
+    - .cargo/registry
+    - .cargo/git
+    - target/
+
+lint-rust:
+  stage: lint
+  image: rust:1.85-slim
+  script:
+    - rustup component add clippy rustfmt
+    - cargo fmt --all -- --check
+    - cargo clippy --workspace -- -D warnings
+
+rust-test:
+  stage: test
+  image: rust:1.85-slim
+  script:
+    - cargo test --workspace --verbose
+
+build-linux-x86_64:
+  stage: build
+  image: rust:1.85-slim
+  script:
+    - mkdir -p release
+    - cargo build --release --target x86_64-unknown-linux-gnu
+    - mv target/x86_64-unknown-linux-gnu/release/enva release/enva-linux-x86_64
+  artifacts:
+    paths:
+      - release/enva-linux-x86_64
+    expire_in: 30 days
+
+build-linux-aarch64:
+  stage: build
+  image: rust:1.85-slim
+  before_script:
+    - rustup target add aarch64-unknown-linux-gnu
+    - cargo install cargo-zigbuild
+    - apt-get update && apt-get install -y --no-install-recommends wget xz-utils
+    - >
+      ZIG_VERSION="0.15.0" &&
+      wget -q "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" &&
+      tar xJf "zig-x86_64-linux-${ZIG_VERSION}.tar.xz" &&
+      mv "zig-x86_64-linux-${ZIG_VERSION}" /usr/local/zig &&
+      ln -s /usr/local/zig/zig /usr/local/bin/zig
+  script:
+    - mkdir -p release
+    - cargo zigbuild --release --target aarch64-unknown-linux-gnu
+    - mv target/aarch64-unknown-linux-gnu/release/enva release/enva-linux-aarch64
+  artifacts:
+    paths:
+      - release/enva-linux-aarch64
+    expire_in: 30 days
+
+build-macos-aarch64:
+  stage: build
+  image: rust:1.85-slim
+  before_script:
+    - rustup target add aarch64-apple-darwin
+    - cargo install cargo-zigbuild
+    - apt-get update && apt-get install -y --no-install-recommends wget xz-utils
+    - >
+      ZIG_VERSION="0.15.0" &&
+      wget -q "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" &&
+      tar xJf "zig-x86_64-linux-${ZIG_VERSION}.tar.xz" &&
+      mv "zig-x86_64-linux-${ZIG_VERSION}" /usr/local/zig &&
+      ln -s /usr/local/zig/zig /usr/local/bin/zig
+  script:
+    - mkdir -p release
+    - cargo zigbuild --release --target aarch64-apple-darwin
+    - mv target/aarch64-apple-darwin/release/enva release/enva-macos-aarch64
+  artifacts:
+    paths:
+      - release/enva-macos-aarch64
+    expire_in: 30 days
+
+bench-compile:
+  stage: bench
+  image: rust:1.85-slim
+  script:
+    - cargo bench --no-run

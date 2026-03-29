@@ -1,0 +1,118 @@
+# =============================================================================
+# Enva — 项目配置 (Project Config)
+# =============================================================================
+# 文件位置: <项目根目录>/.enva.yaml
+# 作用域:   当前项目
+# 文档:     docs/design/en/config_reference.md
+#
+# 此文件可提交到版本控制（不含任何 secret 值，仅定义注入行为）
+# 实际 vault 文件 (*.vault.json) 应加入 .gitignore
+#
+# 数据模型: 基于 alias 的引用模型
+# - vault 中每个 secret 有唯一 alias（如 prod-db）和 key（环境变量名，如 DATABASE_URL）
+# - app 通过 alias 引用 secret，可共享，可 override 注入时的环境变量名
+# =============================================================================
+
+# 项目专用的 vault 文件路径（覆盖全局 defaults.vault_path）
+vault_path: "./vault/project.vault.json"
+
+# 默认 --app 值（CLI 未指定 --app 时使用此值）
+default_app: "backend"
+
+# ---------------------------------------------------------------------------
+# apps — 应用定义（alias 引用模型）
+# ---------------------------------------------------------------------------
+# 每个 app 通过 secrets 列表引用 vault 中的 alias
+# 注入时: env[overrides.get(alias, secret.key)] = decrypt(secret.value)
+#
+# 示例: enva run --app backend -- python manage.py runserver
+#   → 解析 backend.secrets 中的每个 alias
+#   → 查找 vault 中对应 secret 的 key 和 value
+#   → 若 overrides 中有该 alias 的映射，使用 override 的变量名注入
+# ---------------------------------------------------------------------------
+apps:
+
+  # --- 后端 API 服务 ---
+  backend:
+    description: "后端 API 服务"
+
+    # 引用 vault 中的 secret alias 列表
+    # 这些 alias 必须在 vault.json 的 secrets{} 中存在
+    secrets:
+      - "prod-db"          # key=DATABASE_URL → 注入 DATABASE_URL
+      - "redis-prod"       # key=REDIS_URL → 注入 REDIS_URL
+      - "jwt-secret"       # key=JWT_SECRET → 注入 JWT_SECRET
+      - "shared-sentry"    # key=SENTRY_DSN → 注入 SENTRY_DSN
+      - "shared-api-key"   # key=API_KEY → 注入 API_KEY
+
+    # 注入时的环境变量名覆盖（alias → 自定义变量名）
+    # 不在此 map 中的 alias 使用 secret 自身的 key 作为变量名
+    overrides: {}
+
+    # 当系统环境中已存在同名变量时，是否用 vault 值覆盖
+    override_system: false
+
+  # --- 前端构建 ---
+  # 演示 overrides: 同一个 secret 在前端注入为不同的环境变量名
+  frontend:
+    description: "前端构建环境"
+
+    # 前端与后端共享 shared-sentry 和 shared-api-key，无需重复存储
+    secrets:
+      - "shared-sentry"    # key=SENTRY_DSN → 通过 override 注入为 NEXT_PUBLIC_SENTRY_DSN
+      - "shared-api-key"   # key=API_KEY → 通过 override 注入为 NEXT_PUBLIC_API_KEY
+
+    # 前端需要带 NEXT_PUBLIC_ 前缀的变量名
+    overrides:
+      shared-sentry: "NEXT_PUBLIC_SENTRY_DSN"
+      shared-api-key: "NEXT_PUBLIC_API_KEY"
+
+    override_system: false
+
+  # --- 异步 Worker ---
+  # 演示: 与 backend 共享多个 secret，额外引用 worker 专用 secret
+  worker:
+    description: "Celery 异步任务 worker"
+    secrets:
+      - "prod-db"          # 共享: 与 backend 相同的数据库
+      - "jwt-secret"       # 共享: 与 backend 相同的 JWT 密钥
+      - "redis-prod"       # 共享: 与 backend 相同的 Redis
+      - "celery-broker"    # worker 专用: CELERY_BROKER_URL
+    overrides: {}
+    override_system: true
+
+  # --- Staging 环境 ---
+  # 演示: 使用不同 alias 指向同名 key 的不同值
+  staging:
+    description: "Staging 测试环境"
+    secrets:
+      - "staging-db"       # key=DATABASE_URL（与 prod-db 同 key，不同 alias/值）
+      - "jwt-secret"       # 共享: 与生产环境相同的 JWT 密钥
+      - "shared-sentry"    # 共享: 相同的 Sentry DSN
+    overrides: {}
+    override_system: false
+
+# =============================================================================
+# 环境覆盖示例
+# =============================================================================
+# 项目目录下可放置 `.enva.<env>.yaml`（如 `.enva.staging.yaml`），与基础 `.enva.yaml`
+# 深度合并后，再运行例如:
+#   enva run --app backend -- python manage.py runserver
+#
+# 对应的环境覆盖文件 `.enva.staging.yaml` 示例:
+#
+#   vault_path: "./vault/staging.vault.json"
+#   apps:
+#     backend:
+#       secrets:
+#         - "staging-db"         # 替换 prod-db 为 staging-db
+#         - "jwt-secret"
+#         - "shared-sentry"
+#       override_system: true
+#
+# 合并规则: 环境覆盖文件深度合并到项目配置之上
+# - 标量字段: 直接覆盖
+# - map 字段 (apps): 逐 key 递归合并
+# - list 字段 (secrets): 整体替换（不做元素级合并）
+# - map 字段 (overrides): 逐 key 合并
+# =============================================================================
