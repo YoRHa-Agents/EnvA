@@ -1,0 +1,47 @@
+# Rust
+target/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+.enva/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime data (not tracked)
+*.vault.json
+
+# Logs
+*.log
+
+# Build artifacts & release binaries
+release/
+enva-linux-*
+enva-macos-*
+enva-windows-*
+*.bak
+
+# Local dev workspace
+.local/
+
+# Auto-generated docs
+doc_auto/
+
+docs/research/

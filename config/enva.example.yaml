@@ -1,0 +1,103 @@
+# =============================================================================
+# Enva — 全局配置 (Global Config)
+# =============================================================================
+# 文件位置: ~/.enva/config.yaml
+# 作用域:   用户级，跨项目共享
+# 文档:     docs/design/en/config_reference.md
+# =============================================================================
+
+# 配置格式版本号（必填，当前仅支持 "1"）
+version: "1"
+
+# ---------------------------------------------------------------------------
+# defaults — 默认行为（可被项目配置或 CLI 覆盖）
+# ---------------------------------------------------------------------------
+defaults:
+  # 默认 vault 文件路径
+  # 项目配置中的 vault_path 或 --vault 会覆盖此值
+  vault_path: "~/.enva/vault.json"
+
+  # 密码在内存中缓存的秒数（0 = 每次操作都要求输入密码）
+  password_timeout: 300
+
+  # 密码缓存模式:
+  #   memory  — 进程内存缓存，进程退出后清除
+  #   keyring — 使用 OS keyring 持久缓存（macOS Keychain / Linux Secret Service）
+  #   none    — 不缓存，每次操作均需输入
+  password_cache: "memory"
+
+  # KDF (Key Derivation Function) 参数
+  # 这些参数仅影响新建 vault 时的默认值；已有 vault 使用其内嵌的 _meta.kdf 参数
+  kdf:
+    # KDF 算法: argon2id (RFC 9106 推荐) | scrypt
+    algorithm: "argon2id"
+
+    # 内存开销 (KiB): 65536 = 64MB，最低 8192 (8MB)
+    memory_cost: 65536
+
+    # 迭代次数: 值越大越安全，计算时间线性增长
+    time_cost: 3
+
+    # 并行线程数: 1–256
+    parallelism: 4
+
+# ---------------------------------------------------------------------------
+# shell — Shell 集成配置
+# ---------------------------------------------------------------------------
+shell:
+  # 默认注入模式:
+  #   exec   — 子进程注入 (enva run --app <APP> -- cmd)，enva 不驻留父 shell
+  #   export — eval 注入当前 shell，需配合 history_protection
+  default_mode: "exec"
+
+  # 是否在 shell hook 触发时自动注入 vault 中的环境变量
+  # 设为 true 后，进入含 .enva.yaml 的目录会自动注入
+  auto_inject: false
+
+  # 阻止 enva 命令出现在 shell 历史记录中
+  # bash: HISTCONTROL=ignorespace; zsh: setopt HIST_IGNORE_SPACE
+  history_protection: true
+
+  # Shell hook 脚本路径
+  hooks:
+    bash: "~/.enva/hooks/enva-hook.bash"
+    zsh: "~/.enva/hooks/enva-hook.zsh"
+
+# ---------------------------------------------------------------------------
+# web — Web 管理界面配置
+# ---------------------------------------------------------------------------
+web:
+  # 监听地址（默认仅本地访问；设为 0.0.0.0 暴露到网络）
+  host: "127.0.0.1"
+
+  # 监听端口 (1024–65535)
+  port: 8080
+
+  # CORS 白名单（支持通配符 *）
+  cors_origins:
+    - "http://localhost:*"
+
+  # Web 会话超时秒数（超时后需重新输入密码认证）
+  session_timeout: 1800
+
+  # 密码错误限流
+  rate_limit:
+    # 最大连续密码错误尝试次数
+    max_attempts: 5
+    # 超限后的锁定秒数 (0 = 不锁定)
+    lockout_seconds: 300
+
+# ---------------------------------------------------------------------------
+# logging — 日志与审计
+# ---------------------------------------------------------------------------
+logging:
+  # 日志级别: debug | info | warning | error
+  # CLI --verbose 会覆盖为 debug
+  level: "warning"
+
+  # 审计日志文件路径（记录所有 vault 读写操作）
+  # 设为 null 禁用审计日志
+  audit_file: "~/.enva/audit.log"
+
+  # 在日志输出中脱敏 secret 值
+  redact_values: true

@@ -1,0 +1,29 @@
+[package]
+name = "enva-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+aes-gcm = "0.10"
+argon2 = "0.5"
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+secrecy = { version = "0.10", features = ["serde"] }
+zeroize = { version = "1.7", features = ["derive"] }
+rand = "0.8"
+base64 = "0.22"
+dirs = "6"
+chrono = { version = "0.4", default-features = false, features = ["std", "serde", "now"] }
+tempfile = "3"
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "crypto_bench"
+harness = false
