@@ -53,6 +53,8 @@ secrets
 ├── run --app NAME --vault PATH -- CMD [ARGS]                      # Resolve aliases and inject into subprocess
 ├── export --app NAME --vault PATH [--format]                      # Export resolved env vars for app
 ├── import --from FILE --app NAME --vault PATH                     # Import from .env (auto-generates aliases)
+├── deploy --to USER@HOST:/PATH --vault PATH [--overwrite]         # Upload the current vault over SSH/SFTP
+├── sync-from --from USER@HOST:/PATH --vault PATH [--overwrite]    # Download a vault over SSH/SFTP into the local vault path
 ├── serve --port PORT --vault PATH [--host]                        # Start the web management service
 └── self-test                                                      # Verify installation integrity
 ```
@@ -63,8 +65,8 @@ The following options are available on all subcommands (defined at the command g
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--vault PATH` | `click.Path` | `defaults.vault_path` from config, ultimate fallback `~/.secrets/vault.json` | Vault file path. Supports `~` expansion. |
-| `--config PATH` | `click.Path` | `~/.secrets/config.yaml` | Global configuration file path. |
+| `--vault PATH` | `click.Path` | `defaults.vault_path` from config, ultimate fallback `~/.enva/vault.json` | Vault file path. Supports `~` expansion and relative paths resolved from the current working directory. |
+| `--config PATH` | `click.Path` | `~/.enva/config.yaml` | Global configuration file path. |
 | `--password-stdin` | `bool` (flag) | `False` | Read password from stdin (for scripts/CI) instead of an interactive prompt. |
 | `--quiet` / `-q` | `bool` (flag) | `False` | Quiet mode — only output data to stdout; suppress status messages on stderr. |
 | `--verbose` / `-v` | `bool` (flag) | `False` | Verbose mode — output debug information to stderr. Mutually exclusive with `--quiet`. |
@@ -866,7 +868,7 @@ Starting from CWD, traverse upward looking for `.enva.yaml`:
 
 **Stop condition**: Reaches the parent directory of `$HOME` or the filesystem root.
 
-**After finding the config file**: Reads `vault_path` (supports relative paths, resolved relative to the config file's directory) and `default_app` to determine the injection scope.
+**After finding the config file**: Reads `vault_path` (supports `~`; relative paths are resolved from the current working directory when `enva` runs) and `default_app` to determine the injection scope.
 
 ---
 
@@ -924,7 +926,7 @@ Content-Type: application/json
 
 ```json
 {
-  "vault_path": "/home/user/.secrets/vault.json",
+  "vault_path": "/home/user/.enva/vault.json",
   "iat": 1711527000,
   "exp": 1711528800
 }
@@ -932,7 +934,7 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `vault_path` | `string` | Path to the vault file served by this instance |
+| `vault_path` | `string` | Resolved path to the vault file currently selected for this server session; changing it invalidates prior tokens |
 | `iat` | `integer` | Issued-at time (Unix timestamp) |
 | `exp` | `integer` | Expiration time (Unix timestamp) |
 

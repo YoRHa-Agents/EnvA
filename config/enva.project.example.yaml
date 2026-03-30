@@ -35,6 +35,9 @@ apps:
   # --- 后端 API 服务 ---
   backend:
     description: "后端 API 服务"
+    # 直接执行 `enva backend` 时的可执行路径。
+    # 支持 `~`、相对路径或绝对路径；相对路径按运行 enva 时的当前工作目录解析。
+    app_path: "./bin/backend"
 
     # 引用 vault 中的 secret alias 列表
     # 这些 alias 必须在 vault.json 的 secrets{} 中存在
@@ -56,6 +59,7 @@ apps:
   # 演示 overrides: 同一个 secret 在前端注入为不同的环境变量名
   frontend:
     description: "前端构建环境"
+    app_path: "./scripts/frontend-dev.sh"
 
     # 前端与后端共享 shared-sentry 和 shared-api-key，无需重复存储
     secrets:
@@ -73,6 +77,7 @@ apps:
   # 演示: 与 backend 共享多个 secret，额外引用 worker 专用 secret
   worker:
     description: "Celery 异步任务 worker"
+    app_path: "./bin/worker"
     secrets:
       - "prod-db"          # 共享: 与 backend 相同的数据库
       - "jwt-secret"       # 共享: 与 backend 相同的 JWT 密钥
@@ -85,6 +90,7 @@ apps:
   # 演示: 使用不同 alias 指向同名 key 的不同值
   staging:
     description: "Staging 测试环境"
+    app_path: "./scripts/staging.sh"
     secrets:
       - "staging-db"       # key=DATABASE_URL（与 prod-db 同 key，不同 alias/值）
       - "jwt-secret"       # 共享: 与生产环境相同的 JWT 密钥

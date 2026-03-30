@@ -432,6 +432,11 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
         <input type="text" id="loginVaultPath" class="mono" value="" placeholder="~/.enva/vault.json" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;font-family:'JetBrains Mono',monospace;flex:1;padding:0;">
       </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--text-muted);">
+        <input type="checkbox" id="loginVaultPathAbsolute">
+        <span data-i18n="absolutePath">Use absolute path</span>
+      </label>
+      <div class="field-hint" id="loginVaultPathResolved" style="display:none"></div>
     </div>
     <div class="field-group">
       <label data-i18n="port">Port</label>
@@ -760,6 +765,11 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
       <div class="field-group">
         <label data-i18n="appPath">App Path (executable to launch)</label>
         <input type="text" id="newAppPath" placeholder="e.g. python app.py, ./start.sh, node server.js">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--text-muted);">
+          <input type="checkbox" id="newAppPathAbsolute">
+          <span data-i18n="absolutePath">Use absolute path</span>
+        </label>
+        <div class="field-hint" id="newAppPathResolved" style="display:none"></div>
       </div>
       <div class="field-group">
         <label data-i18n="description">Description</label>
@@ -784,6 +794,11 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
       <div class="field-group">
         <label data-i18n="vaultPath">Vault Path</label>
         <input type="text" id="settingsVaultPath" class="mono" placeholder="~/.enva/vault.json">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--text-muted);">
+          <input type="checkbox" id="settingsVaultPathAbsolute">
+          <span data-i18n="absolutePath">Use absolute path</span>
+        </label>
+        <div class="field-hint" id="settingsVaultPathResolved" style="display:none"></div>
       </div>
       <div class="field-group">
         <label data-i18n="port">Port</label>
@@ -832,8 +847,10 @@ const TRANSLATIONS = {
     imported: 'Imported', theme: 'Theme', language: 'Language',
     settings: 'Settings', port: 'Port', initVault: 'Init Vault', confirmPassword: 'Confirm Password',
     appAlias: 'Alias (unique identifier)', appPath: 'App Path (executable to launch)',
+    absolutePath: 'Use absolute path', resolvedPath: 'Resolved path',
     passwordMismatch: 'Passwords do not match.', passwordTooShort: 'Password must be at least 8 characters.',
     vaultInitialized: 'Vault initialized! Enter password to unlock.',
+    vaultPathUpdated: 'Vault path updated. Sign in again to continue.',
     quickPaste: 'Quick Paste', parse: 'Parse',
     quickPasteHint: 'Paste <code>export KEY=VALUE</code> or <code>KEY=VALUE</code> to auto-fill fields below.',
     batchAdd: 'Batch Add', batchPasteLabel: 'Paste multiple lines',
@@ -862,8 +879,10 @@ const TRANSLATIONS = {
     imported: '已导入', theme: '主题', language: '语言',
     settings: '设置', port: '端口', initVault: '初始化密钥库', confirmPassword: '确认密码',
     appAlias: '别名（唯一标识）', appPath: '应用路径（启动命令）',
+    absolutePath: '使用绝对路径', resolvedPath: '解析后路径',
     passwordMismatch: '两次密码不一致。', passwordTooShort: '密码长度至少 8 个字符。',
     vaultInitialized: '密钥库已初始化！请输入密码解锁。',
+    vaultPathUpdated: '密钥库路径已更新，请重新登录后继续。',
     quickPaste: '快速粘贴', parse: '解析',
     quickPasteHint: '粘贴 <code>export KEY=VALUE</code> 或 <code>KEY=VALUE</code> 自动填充下方字段。',
     batchAdd: '批量添加', batchPasteLabel: '粘贴多行',
@@ -934,6 +953,185 @@ async function apiFetch(path, opts = {}) {
   return data;
 }
 
+const pathFieldTimers = {};
+
+function isAbsolutePath(value) {
+  return /^(?:\/|[A-Za-z]:[\\/])/.test(value || '');
+}
+
+function readVaultPathPrefs() {
+  return {
+    raw: localStorage.getItem('enva-vault-path') || '',
+    absolute: localStorage.getItem('enva-vault-path-absolute') === 'true'
+  };
+}
+
+function writeVaultPathPrefs(raw, absolute) {
+  if (raw) {
+    localStorage.setItem('enva-vault-path', raw);
+  } else {
+    localStorage.removeItem('enva-vault-path');
+  }
+  localStorage.setItem('enva-vault-path-absolute', absolute ? 'true' : 'false');
+}
+
+function setPathPreview(previewId, message, isError = false) {
+  const preview = document.getElementById(previewId);
+  if (!preview) return;
+  if (!message) {
+    preview.textContent = '';
+    preview.style.display = 'none';
+    return;
+  }
+  preview.textContent = message;
+  preview.style.display = 'block';
+  preview.style.color = isError ? 'var(--danger)' : 'var(--text-muted)';
+}
+
+function setPathFieldRaw(inputId, rawValue) {
+  const input = document.getElementById(inputId);
+  if (input) input.dataset.rawPath = rawValue || '';
+}
+
+function getPathFieldRaw(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return '';
+  return (input.dataset.rawPath || input.value || '').trim();
+}
+
+async function resolveServerPath(kind, value) {
+  const data = await apiFetch('/paths/resolve', {
+    method: 'POST',
+    body: JSON.stringify({ kind, path: value })
+  });
+  return data.resolved_path || '';
+}
+
+async function renderPathField(inputId, checkboxId, previewId, kind, rawValue, absolute) {
+  const input = document.getElementById(inputId);
+  const checkbox = document.getElementById(checkboxId);
+  if (!input || !checkbox) return;
+  const raw = (rawValue || '').trim();
+  setPathFieldRaw(inputId, raw);
+  checkbox.checked = !!absolute;
+  if (!raw) {
+    input.value = '';
+    setPathPreview(previewId, '');
+    return;
+  }
+  try {
+    const resolved = await resolveServerPath(kind, raw);
+    input.value = checkbox.checked ? resolved : raw;
+    setPathPreview(previewId, `${TRANSLATIONS[currentLang].resolvedPath || 'Resolved path'}: ${resolved}`);
+  } catch (err) {
+    input.value = raw;
+    checkbox.checked = false;
+    setPathPreview(previewId, err.message, true);
+  }
+}
+
+function schedulePathFieldPreview(inputId, checkboxId, previewId, kind) {
+  const input = document.getElementById(inputId);
+  const checkbox = document.getElementById(checkboxId);
+  if (!input || !checkbox) return;
+  clearTimeout(pathFieldTimers[inputId]);
+  pathFieldTimers[inputId] = window.setTimeout(async () => {
+    const raw = input.value.trim();
+    setPathFieldRaw(inputId, raw);
+    if (!raw) {
+      setPathPreview(previewId, '');
+      return;
+    }
+    try {
+      const resolved = await resolveServerPath(kind, raw);
+      if (checkbox.checked) input.value = resolved;
+      setPathPreview(previewId, `${TRANSLATIONS[currentLang].resolvedPath || 'Resolved path'}: ${resolved}`);
+    } catch (err) {
+      setPathPreview(previewId, err.message, true);
+    }
+  }, 150);
+}
+
+async function toggleAbsolutePath(inputId, checkboxId, previewId, kind, persistVaultPath = false) {
+  const input = document.getElementById(inputId);
+  const checkbox = document.getElementById(checkboxId);
+  if (!input || !checkbox) return;
+  const raw = getPathFieldRaw(inputId) || input.value.trim();
+  if (!raw) {
+    input.value = '';
+    setPathPreview(previewId, '');
+    if (persistVaultPath) writeVaultPathPrefs('', checkbox.checked);
+    return;
+  }
+  setPathFieldRaw(inputId, raw);
+  try {
+    const resolved = await resolveServerPath(kind, raw);
+    input.value = checkbox.checked ? resolved : raw;
+    setPathPreview(previewId, `${TRANSLATIONS[currentLang].resolvedPath || 'Resolved path'}: ${resolved}`);
+    if (persistVaultPath) writeVaultPathPrefs(raw, checkbox.checked);
+  } catch (err) {
+    checkbox.checked = false;
+    input.value = raw;
+    setPathPreview(previewId, err.message, true);
+  }
+}
+
+async function preparePathFieldValue(inputId, checkboxId, previewId, kind) {
+  const input = document.getElementById(inputId);
+  const checkbox = document.getElementById(checkboxId);
+  if (!input || !checkbox) return '';
+
+  const raw = checkbox.checked ? (getPathFieldRaw(inputId) || input.value.trim()) : input.value.trim();
+  if (!raw) {
+    setPathFieldRaw(inputId, '');
+    setPathPreview(previewId, '');
+    return '';
+  }
+
+  setPathFieldRaw(inputId, raw);
+  const resolved = await resolveServerPath(kind, raw);
+  setPathPreview(previewId, `${TRANSLATIONS[currentLang].resolvedPath || 'Resolved path'}: ${resolved}`);
+  if (checkbox.checked) input.value = resolved;
+  return checkbox.checked ? resolved : raw;
+}
+
+async function syncVaultPathFields(serverVaultPath = '') {
+  const prefs = readVaultPathPrefs();
+  const raw = prefs.raw || serverVaultPath || '';
+  const absolute = prefs.raw ? prefs.absolute : isAbsolutePath(raw);
+  await renderPathField('loginVaultPath', 'loginVaultPathAbsolute', 'loginVaultPathResolved', 'vault', raw, absolute);
+  await renderPathField('settingsVaultPath', 'settingsVaultPathAbsolute', 'settingsVaultPathResolved', 'vault', raw, absolute);
+}
+
+async function syncAppPathField(rawPath = '') {
+  await renderPathField(
+    'newAppPath',
+    'newAppPathAbsolute',
+    'newAppPathResolved',
+    'app',
+    rawPath,
+    isAbsolutePath(rawPath)
+  );
+}
+
+function bindPathField(inputId, checkboxId, previewId, kind, persistVaultPath = false) {
+  const input = document.getElementById(inputId);
+  const checkbox = document.getElementById(checkboxId);
+  if (!input || !checkbox) return;
+
+  input.addEventListener('input', () => {
+    setPathFieldRaw(inputId, input.value.trim());
+    if (persistVaultPath) {
+      writeVaultPathPrefs(getPathFieldRaw(inputId), checkbox.checked);
+    }
+    schedulePathFieldPreview(inputId, checkboxId, previewId, kind);
+  });
+
+  checkbox.addEventListener('change', () => {
+    toggleAbsolutePath(inputId, checkboxId, previewId, kind, persistVaultPath);
+  });
+}
+
 /* ─── Utilities ───────────────────────────────────────── */
 function toast(msg, type = 'success') {
   const c = document.getElementById('toastContainer');
@@ -980,7 +1178,7 @@ function togglePw(id) {
 /* ─── Login / Logout / Init ───────────────────────────── */
 let initMode = false;
 
-function doInit() {
+async function doInit() {
   if (!initMode) {
     initMode = true;
     document.getElementById('confirmPasswordGroup').style.display = '';
@@ -1006,28 +1204,38 @@ function doInit() {
   errEl.classList.remove('show');
   const btn = document.getElementById('initVaultBtn');
   btn.disabled = true;
-  apiFetch('/vault/init', { method: 'POST', body: JSON.stringify({ password: pw }) })
-    .then(() => {
-      initMode = false;
-      document.getElementById('confirmPasswordGroup').style.display = 'none';
-      btn.textContent = TRANSLATIONS[currentLang].initVault || 'Init Vault';
-      btn.style.background = 'var(--success)';
-      btn.disabled = false;
-      document.getElementById('loginPassword').value = '';
-      document.getElementById('loginConfirmPassword').value = '';
-      document.getElementById('loginPassword').placeholder = 'Enter vault password (any text)';
-      toast(TRANSLATIONS[currentLang].vaultInitialized || 'Vault initialized! Enter password to unlock.');
-    })
-    .catch(err => {
-      errText.textContent = err.message;
-      errEl.classList.add('show');
-      btn.disabled = false;
+  try {
+    const vaultPath = await preparePathFieldValue(
+      'loginVaultPath',
+      'loginVaultPathAbsolute',
+      'loginVaultPathResolved',
+      'vault'
+    );
+    const absolute = document.getElementById('loginVaultPathAbsolute').checked;
+    writeVaultPathPrefs(getPathFieldRaw('loginVaultPath') || vaultPath, absolute || (!getPathFieldRaw('loginVaultPath') && isAbsolutePath(vaultPath)));
+    const data = await apiFetch('/vault/init', {
+      method: 'POST',
+      body: JSON.stringify({ password: pw, vault_path: vaultPath })
     });
+    await syncVaultPathFields(data.vault_path || vaultPath);
+    initMode = false;
+    document.getElementById('confirmPasswordGroup').style.display = 'none';
+    btn.textContent = TRANSLATIONS[currentLang].initVault || 'Init Vault';
+    btn.style.background = 'var(--success)';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginConfirmPassword').value = '';
+    document.getElementById('loginPassword').placeholder = 'Enter vault password (any text)';
+    toast(TRANSLATIONS[currentLang].vaultInitialized || 'Vault initialized! Enter password to unlock.');
+  } catch (err) {
+    errText.textContent = err.message;
+    errEl.classList.add('show');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
-function doLogin() {
+async function doLogin() {
   const pw = document.getElementById('loginPassword').value.trim();
-  const vp = (document.getElementById('loginVaultPath') || {}).value || '';
   const pt = (document.getElementById('loginPort') || {}).value || '';
   const errEl = document.getElementById('loginError');
   const errText = document.getElementById('loginErrorText');
@@ -1038,25 +1246,38 @@ function doLogin() {
     errEl.classList.add('show');
     return;
   }
-  if (vp.trim()) localStorage.setItem('enva-vault-path', vp.trim());
   if (pt.trim()) localStorage.setItem('enva-port', pt.trim());
   errEl.classList.remove('show');
   const loginBtn = document.querySelector('[data-i18n="unlockVault"]');
   if (loginBtn) loginBtn.disabled = true;
-  apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ password: pw }) })
-    .then(data => {
-      authToken = data.token;
-      if (loginBtn) loginBtn.disabled = false;
-      document.getElementById('loginOverlay').classList.add('hidden');
-      document.getElementById('mainApp').classList.add('active');
-      loadSecretsFromAPI();
-      loadAppsFromAPI();
-    })
-    .catch(err => {
-      if (loginBtn) loginBtn.disabled = false;
-      errText.textContent = err.message;
-      errEl.classList.add('show');
+  try {
+    const vaultPath = await preparePathFieldValue(
+      'loginVaultPath',
+      'loginVaultPathAbsolute',
+      'loginVaultPathResolved',
+      'vault'
+    );
+    const absolute = document.getElementById('loginVaultPathAbsolute').checked;
+    const data = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password: pw, vault_path: vaultPath })
     });
+    writeVaultPathPrefs(
+      getPathFieldRaw('loginVaultPath') || data.vault_path,
+      absolute || (!getPathFieldRaw('loginVaultPath') && isAbsolutePath(data.vault_path))
+    );
+    await syncVaultPathFields(data.vault_path);
+    authToken = data.token;
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('mainApp').classList.add('active');
+    loadSecretsFromAPI();
+    loadAppsFromAPI();
+  } catch (err) {
+    errText.textContent = err.message;
+    errEl.classList.add('show');
+  } finally {
+    if (loginBtn) loginBtn.disabled = false;
+  }
 }
 
 function doLogout() {
@@ -1075,6 +1296,7 @@ function doLogout() {
   revealedValues.clear();
   Object.keys(SECRETS).forEach(k => delete SECRETS[k]);
   Object.keys(APPS).forEach(k => delete APPS[k]);
+  syncVaultPathFields().catch(() => {});
 }
 
 function loadSecretsFromAPI() {
@@ -1910,9 +2132,9 @@ function openAddAppModal() {
   document.getElementById('appModalSave').textContent = 'Create App';
   document.getElementById('newAppName').value = '';
   document.getElementById('newAppName').disabled = false;
-  document.getElementById('newAppPath').value = '';
   document.getElementById('newAppDesc').value = '';
   document.getElementById('appNameError').classList.remove('show');
+  syncAppPathField('').catch(() => {});
   openModal('addAppModal');
   document.getElementById('newAppName').focus();
 }
@@ -1925,9 +2147,9 @@ function openEditAppModal(name) {
   document.getElementById('appModalSave').textContent = 'Save Changes';
   document.getElementById('newAppName').value = name;
   document.getElementById('newAppName').disabled = true;
-  document.getElementById('newAppPath').value = app.app_path || '';
   document.getElementById('newAppDesc').value = app.description || '';
   document.getElementById('appNameError').classList.remove('show');
+  syncAppPathField(app.app_path || '').catch(() => {});
   openModal('addAppModal');
   document.getElementById('newAppPath').focus();
 }
@@ -1940,48 +2162,56 @@ function doSaveApp() {
   }
 }
 
-function doAddApp() {
+async function doAddApp() {
   const name = document.getElementById('newAppName').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-  const appPath = document.getElementById('newAppPath').value.trim();
   const desc = document.getElementById('newAppDesc').value.trim();
   if (!name) return;
   if (APPS[name]) {
     document.getElementById('appNameError').classList.add('show');
     return;
   }
-  apiFetch('/apps', {
-    method: 'POST',
-    body: JSON.stringify({ name, description: desc, app_path: appPath })
-  })
-    .then(() => {
-      closeModal('addAppModal');
-      loadAppsFromAPI();
-      toast(`App "${name}" created.`);
-    })
-    .catch(err => {
-      document.getElementById('appNameError').textContent = err.message;
-      document.getElementById('appNameError').classList.add('show');
+  try {
+    const appPath = await preparePathFieldValue(
+      'newAppPath',
+      'newAppPathAbsolute',
+      'newAppPathResolved',
+      'app'
+    );
+    await apiFetch('/apps', {
+      method: 'POST',
+      body: JSON.stringify({ name, description: desc, app_path: appPath })
     });
+    closeModal('addAppModal');
+    loadAppsFromAPI();
+    toast(`App "${name}" created.`);
+  } catch (err) {
+    document.getElementById('appNameError').textContent = err.message;
+    document.getElementById('appNameError').classList.add('show');
+  }
 }
 
-function doEditApp() {
+async function doEditApp() {
   const name = editingAppName;
-  const appPath = document.getElementById('newAppPath').value.trim();
   const desc = document.getElementById('newAppDesc').value.trim();
-  apiFetch(`/apps/${encodeURIComponent(name)}`, {
-    method: 'PUT',
-    body: JSON.stringify({ description: desc, app_path: appPath })
-  })
-    .then(() => {
-      closeModal('addAppModal');
-      editingAppName = null;
-      loadAppsFromAPI();
-      toast(`App "${name}" updated.`);
-    })
-    .catch(err => {
-      document.getElementById('appNameError').textContent = err.message;
-      document.getElementById('appNameError').classList.add('show');
+  try {
+    const appPath = await preparePathFieldValue(
+      'newAppPath',
+      'newAppPathAbsolute',
+      'newAppPathResolved',
+      'app'
+    );
+    await apiFetch(`/apps/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ description: desc, app_path: appPath })
     });
+    closeModal('addAppModal');
+    editingAppName = null;
+    loadAppsFromAPI();
+    toast(`App "${name}" updated.`);
+  } catch (err) {
+    document.getElementById('appNameError').textContent = err.message;
+    document.getElementById('appNameError').classList.add('show');
+  }
 }
 
 function doDeleteApp(name) {
@@ -2050,32 +2280,76 @@ function closeConfirm(confirmed) {
   confirmCallback = null;
 }
 
-function openSettingsModal() {
-  const vp = localStorage.getItem('enva-vault-path') || '';
+async function openSettingsModal() {
   const pt = localStorage.getItem('enva-port') || '';
-  document.getElementById('settingsVaultPath').value = vp;
   document.getElementById('settingsPort').value = pt;
+  try {
+    const settings = await apiFetch('/session/settings');
+    if (!readVaultPathPrefs().raw && settings.vault_path) {
+      writeVaultPathPrefs(settings.vault_path, isAbsolutePath(settings.vault_path));
+    }
+    await syncVaultPathFields(settings.vault_path);
+  } catch (err) {
+    toast(err.message, 'error');
+    return;
+  }
   document.getElementById('settingsModal').classList.add('show');
 }
 
-function saveSettings() {
-  const vp = document.getElementById('settingsVaultPath').value.trim();
+async function saveSettings() {
   const pt = document.getElementById('settingsPort').value.trim();
-  if (vp) localStorage.setItem('enva-vault-path', vp); else localStorage.removeItem('enva-vault-path');
   if (pt) localStorage.setItem('enva-port', pt); else localStorage.removeItem('enva-port');
-  document.getElementById('settingsModal').classList.remove('show');
-  toast(TRANSLATIONS[currentLang].secretSaved || 'Saved');
+  try {
+    const vaultPath = await preparePathFieldValue(
+      'settingsVaultPath',
+      'settingsVaultPathAbsolute',
+      'settingsVaultPathResolved',
+      'vault'
+    );
+    if (!vaultPath) {
+      throw new Error('Vault path is required.');
+    }
+    const absolute = document.getElementById('settingsVaultPathAbsolute').checked;
+    const settings = await apiFetch('/session/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ vault_path: vaultPath })
+    });
+    writeVaultPathPrefs(
+      getPathFieldRaw('settingsVaultPath') || settings.vault_path,
+      absolute || (!getPathFieldRaw('settingsVaultPath') && isAbsolutePath(settings.vault_path))
+    );
+    await syncVaultPathFields(settings.vault_path);
+    document.getElementById('settingsModal').classList.remove('show');
+    if (settings.relogin_required) {
+      authToken = null;
+      doLogout();
+      toast(TRANSLATIONS[currentLang].vaultPathUpdated || 'Vault path updated. Sign in again to continue.');
+      return;
+    }
+    toast(TRANSLATIONS[currentLang].secretSaved || 'Saved');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 setTheme(currentTheme);
 setLanguage(currentLang);
-(function initLoginFields() {
-  const savedVp = localStorage.getItem('enva-vault-path');
+(async function initLoginFields() {
   const savedPort = localStorage.getItem('enva-port');
-  const vpEl = document.getElementById('loginVaultPath');
   const ptEl = document.getElementById('loginPort');
-  if (vpEl && savedVp) vpEl.value = savedVp;
   if (ptEl && savedPort) ptEl.value = savedPort;
+  bindPathField('loginVaultPath', 'loginVaultPathAbsolute', 'loginVaultPathResolved', 'vault', true);
+  bindPathField('settingsVaultPath', 'settingsVaultPathAbsolute', 'settingsVaultPathResolved', 'vault', true);
+  bindPathField('newAppPath', 'newAppPathAbsolute', 'newAppPathResolved', 'app', false);
+  try {
+    const settings = await apiFetch('/session/settings');
+    if (!readVaultPathPrefs().raw && settings.vault_path) {
+      writeVaultPathPrefs(settings.vault_path, isAbsolutePath(settings.vault_path));
+    }
+    await syncVaultPathFields(settings.vault_path || '');
+  } catch (_) {
+    await syncVaultPathFields();
+  }
 })();
 </script>
 </body>

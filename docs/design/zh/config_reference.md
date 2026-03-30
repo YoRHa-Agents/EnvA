@@ -1,6 +1,6 @@
 # 配置体系参考文档 (Configuration Reference)
 
-> **Summary (EN):** Complete configuration reference for the five-layer secrets manager config system. Covers global config (`~/.secrets/config.yaml`), project config (`.enva.yaml`), environment overrides (`.enva.{env}.yaml`), CLI flags/env vars, and built-in defaults. Every field is defined with path, type, default value, description, validation rules, example, and applicable layers. Merge priority: CLI > env-override > project > global > defaults.
+> **Summary (EN):** Complete configuration reference for the five-layer secrets manager config system. Covers global config (`~/.enva/config.yaml`), project config (`.enva.yaml`), environment overrides (`.enva.{env}.yaml`), CLI flags/env vars, and built-in defaults. Every field is defined with path, type, default value, description, validation rules, example, and applicable layers. Merge priority: CLI > env-override > project > global > defaults.
 
 ---
 
@@ -13,7 +13,7 @@
 | **Layer 5** (最高) | CLI flags / 环境变量 | 命令行参数、`ENVA_*` 环境变量 | 单次执行 | N/A |
 | **Layer 4** | 环境覆盖 | `.enva.{env}.yaml` | 项目 + 特定环境 | YAML |
 | **Layer 3** | 项目配置 | `.enva.yaml` | 项目目录 | YAML |
-| **Layer 2** | 全局配置 | `~/.secrets/config.yaml` | 用户级，跨项目 | YAML |
+| **Layer 2** | 全局配置 | `~/.enva/config.yaml` | 用户级，跨项目 | YAML |
 | **Layer 1** (最低) | 内置默认值 | 硬编码于程序内 | 全局 | N/A |
 
 ---
@@ -37,7 +37,7 @@
 
 ## 3. 全局配置字段参考（Layer 2）
 
-文件路径：`~/.secrets/config.yaml`
+文件路径：`~/.enva/config.yaml`
 
 ### 3.1 顶层字段
 
@@ -49,7 +49,7 @@
 
 | 字段路径 | 类型 | 默认值 | 说明 | 校验规则 | 示例 | 可设定层 |
 |----------|------|--------|------|---------|------|---------|
-| `defaults.vault_path` | string | `"~/.secrets/vault.json"` | 默认 vault 文件路径；项目配置或 `--vault` 可覆盖 | 可选；路径字符串，支持 `~` 展开 | `"~/.secrets/vault.json"` | L2, L3, L4, L5 |
+| `defaults.vault_path` | string | `"~/.enva/vault.json"` | 默认 vault 文件路径；项目配置或 `--vault` 可覆盖 | 可选；路径字符串，支持 `~` 展开，且相对路径按当前工作目录解析 | `"~/.enva/vault.json"` | L2, L3, L4, L5 |
 | `defaults.password_timeout` | int | `300` | 密码在内存中缓存的秒数；`0` 表示每次操作都要求输入密码 | 可选；`>= 0` | `300` | L2 |
 | `defaults.password_cache` | enum | `"memory"` | 密码缓存模式 | 可选；枚举值 `memory` \| `keyring` \| `none` | `"memory"` | L2 |
 
@@ -120,7 +120,7 @@
 
 | 字段路径 | 类型 | 默认值 | 说明 | 校验规则 | 示例 | 可设定层 |
 |----------|------|--------|------|---------|------|---------|
-| `vault_path` | string | 继承全局 `defaults.vault_path` | 项目专用的 vault 文件路径 | 可选；路径字符串，支持相对路径（相对项目根目录） | `"./secrets/project.vault.json"` | L3, L4, L5 |
+| `vault_path` | string | 继承全局 `defaults.vault_path` | 项目专用的 vault 文件路径 | 可选；路径字符串，支持 `~`，且相对路径按运行时当前工作目录解析 | `"./secrets/project.vault.json"` | L3, L4, L5 |
 | `default_app` | string | `""` | 默认的 `--app` 值；当 CLI 未指定 `--app` 时使用 | 可选；须匹配 `apps` 下已定义的 app 名称 | `"backend"` | L3, L4, L5 |
 
 ### 4.2 apps.\<name\> — 应用定义（别名引用模型）
@@ -132,7 +132,7 @@
 | `apps.<name>.description` | string | `""` | 应用的人类可读描述，用于 `enva vault list` 输出 | 可选 | `"后端 API 服务"` | L3, L4 |
 | `apps.<name>.secrets` | list\[string\] | `[]` | 此 app 引用的密钥别名列表；每个 alias 指向密钥池中的一个 secret | 可选；字符串列表，每项须为密钥池中已定义的 alias | `["prod-db", "jwt-secret", "shared-sentry"]` | L3, L4 |
 | `apps.<name>.overrides` | map\[string, string\] | `{}` | 注入时覆盖环境变量名的映射：`alias → 自定义 env var name`；未在此 map 中的 alias 使用 secret 自身的 `key` 值注入 | 可选；key 为 alias，value 为合法环境变量名 | `{"prod-db": "DB_URL"}` | L3, L4 |
-| `apps.<name>.env_prefix` | string | `""` | 注入环境变量时添加的前缀；例如 `"MYAPP_"` 使 `DB_URL` 变为 `MYAPP_DB_URL` | 可选；须为合法环境变量名前缀（大写字母、数字、下划线） | `""` | L3, L4 |
+| `apps.<name>.app_path` | string | `""` | 执行 `enva <APP>` 且未显式传入 `-- <cmd>` 时使用的本地可执行路径 | 可选；支持 `~`、相对路径和绝对路径。相对路径按启动 `enva` 时的当前工作目录解析；若 vault 中该 app 已存有非空 `app_path`，则 vault 值优先，配置值仅作回退 | `"./bin/backend"` | L3, L4 |
 | `apps.<name>.override_system` | bool | `false` | 当系统环境中已存在同名变量时，是否用 vault 中的值覆盖 | 可选 | `false` | L3, L4 |
 
 **别名解析注入逻辑**：
@@ -152,6 +152,7 @@ for alias in app.secrets:
 apps:
   backend:
     description: "Backend API"
+    app_path: "./bin/backend"
     secrets: ["prod-db", "jwt-secret", "shared-sentry"]
     overrides:
       prod-db: "DB_URL"
@@ -164,6 +165,7 @@ apps:
 
 在此示例中：
 - `backend` 引用 3 个 secrets，其中 `prod-db` 以 `DB_URL` 注入（而非默认的 `DATABASE_URL`）
+- `backend` 也可以通过 `enva backend` 直接启动，此时 `./bin/backend` 按当前工作目录解析
 - `frontend` 引用 1 个 secret，以 `NEXT_PUBLIC_SENTRY_DSN` 注入（而非默认的 `SENTRY_DSN`）
 - `shared-sentry` 被多个 app 共享引用，无需重复定义
 
@@ -190,7 +192,7 @@ enva backend -- ./start.sh
 | 字段路径 | 内置默认值 |
 |----------|-----------|
 | `version` | `"1"` |
-| `defaults.vault_path` | `"~/.secrets/vault.json"` |
+| `defaults.vault_path` | `"~/.enva/vault.json"` |
 | `defaults.password_timeout` | `300` |
 | `defaults.password_cache` | `"memory"` |
 | `defaults.kdf.algorithm` | `"argon2id"` |
@@ -216,7 +218,7 @@ enva backend -- ./start.sh
 | `apps.<name>.description` | `""` |
 | `apps.<name>.secrets` | `[]` |
 | `apps.<name>.overrides` | `{}` |
-| `apps.<name>.env_prefix` | `""` |
+| `apps.<name>.app_path` | `""` |
 | `apps.<name>.override_system` | `false` |
 
 ---
@@ -232,7 +234,7 @@ CLI flags / env vars  (Layer 5, 最高)
        ↓ 覆盖
 .enva.yaml         (Layer 3, 项目配置)
        ↓ 覆盖
-~/.secrets/config.yaml (Layer 2, 全局配置)
+~/.enva/config.yaml (Layer 2, 全局配置)
        ↓ 覆盖
 内置默认值             (Layer 1, 最低)
 ```
@@ -280,7 +282,7 @@ for alias in apps[NAME].secrets:
 | 1 | 全平台 | `$ENVA_CONFIG` 指定路径 | `--config` 或 `ENVA_CONFIG` 环境变量已设置 |
 | 2 | Linux | `$XDG_CONFIG_HOME/secrets/config.yaml` | `$XDG_CONFIG_HOME` 已设置 |
 | 3 | macOS | `~/Library/Application Support/secrets/config.yaml` | 检测到 macOS（`sys.platform == "darwin"`） |
-| 4 | 全平台 | `~/.secrets/config.yaml` | 统一 fallback |
+| 4 | 全平台 | `~/.enva/config.yaml` | 统一 fallback |
 
 **项目配置发现**：从当前工作目录向上逐级搜索 `.enva.yaml`，直到文件系统根目录。找到的第一个文件作为项目配置；同目录下的 `.enva.{env}.yaml` 作为环境覆盖候选。
 
@@ -290,7 +292,7 @@ for alias in apps[NAME].secrets:
 
 | 优先级 | 路径 | 说明 |
 |--------|------|------|
-| 1 | `~/.secrets/config.yaml` | 用户级全局配置 |
+| 1 | `~/.enva/config.yaml` | 用户级全局配置 |
 | 2 | 当前目录下的 `.enva.yaml` | 当前项目配置 |
 
 在独立模式下，宿主框架集成相关配置字段（若有）将被忽略（不会触发错误，仅静默跳过）。
@@ -303,7 +305,7 @@ for alias in apps[NAME].secrets:
 
 | 类型 | 约束 |
 |------|------|
-| string | UTF-8 字符串；路径类型支持 `~` 展开和环境变量展开 |
+| string | UTF-8 字符串；路径类型支持 `~` 展开。相对路径会拼接到当前工作目录，不做环境变量插值。 |
 | int | 64 位有符号整数 |
 | bool | `true` / `false`（YAML 原生布尔值） |
 | enum | 仅允许文档中列出的枚举值，大小写敏感 |
@@ -335,7 +337,7 @@ for alias in apps[NAME].secrets:
    - overrides 中的 key 须出现在 secrets 列表中
    - default_app 须在 apps 下已定义（或为空）
 5. 合并各层配置（Layer 1 → Layer 5）
-6. 路径展开（~ → $HOME，相对路径 → 绝对路径）
+6. 路径展开（`~` → `$HOME`，相对路径 → 拼接当前工作目录）
 7. 返回冻结的配置对象
 ```
 

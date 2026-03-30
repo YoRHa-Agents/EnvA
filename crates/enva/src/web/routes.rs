@@ -15,10 +15,13 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex as TokioMutex;
 
 use super::auth::AuthManager;
-use crate::vault::{VaultError, VaultStore};
+use crate::{
+    paths,
+    vault::{VaultError, VaultStore},
+};
 
 pub struct AppState {
-    pub vault_path: String,
+    pub vault_path: RwLock<String>,
     pub auth: AuthManager,
     pub password: RwLock<SecretString>,
     pub vault_write_lock: TokioMutex<()>,
@@ -29,11 +32,30 @@ impl AppState {
         let mut secret = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut secret);
         Arc::new(Self {
-            vault_path,
+            vault_path: RwLock::new(vault_path),
             auth: AuthManager::new(&secret),
             password: RwLock::new(SecretString::from(String::new())),
             vault_write_lock: TokioMutex::new(()),
         })
+    }
+
+    fn vault_path(&self) -> String {
+        self.vault_path
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn set_vault_path(&self, vault_path: String) {
+        *self.vault_path.write().unwrap_or_else(|e| e.into_inner()) = vault_path;
+    }
+
+    fn clear_password(&self) {
+        *self.password.write().unwrap() = SecretString::from(String::new());
+    }
+
+    fn set_password(&self, password: String) {
+        *self.password.write().unwrap() = SecretString::from(password);
     }
 }
 
@@ -58,10 +80,18 @@ fn require_auth(
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     let token = extract_token(headers)?;
-    state
+    let claims = state
         .auth
         .verify_token(&token)
         .map_err(|e| (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: e })))?;
+    if claims.vault_path != state.vault_path() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault path changed. Please sign in again.".into(),
+            }),
+        ));
+    }
     Ok(())
 }
 
@@ -76,13 +106,19 @@ fn get_store(state: &AppState) -> Result<VaultStore, (StatusCode, Json<ErrorResp
             }),
         ));
     }
-    VaultStore::load(&state.vault_path, pw.expose_secret()).map_err(|e| {
+    let vault_path = state.vault_path();
+    VaultStore::load(&vault_path, pw.expose_secret()).map_err(|e| {
         let status = match &e {
             VaultError::Auth(_) => StatusCode::UNAUTHORIZED,
             VaultError::Corrupted(_) => StatusCode::UNPROCESSABLE_ENTITY,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        (status, Json(ErrorResponse { error: e.to_string() }))
+        (
+            status,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
     })
 }
 
@@ -91,20 +127,47 @@ struct ErrorResponse {
     error: String,
 }
 
+#[derive(Serialize)]
+struct PathResponse {
+    resolved_path: String,
+}
+
 #[derive(Deserialize)]
 struct LoginRequest {
     password: String,
+    #[serde(default)]
+    vault_path: String,
 }
 
 #[derive(Deserialize)]
 struct InitRequest {
     password: String,
+    #[serde(default)]
+    vault_path: String,
 }
 
 #[derive(Serialize)]
 struct LoginResponse {
     token: String,
     expires_in: u64,
+    vault_path: String,
+}
+
+#[derive(Serialize)]
+struct SessionSettingsResponse {
+    vault_path: String,
+    relogin_required: bool,
+}
+
+#[derive(Deserialize)]
+struct SessionSettingsRequest {
+    vault_path: String,
+}
+
+#[derive(Deserialize)]
+struct ResolvePathRequest {
+    kind: String,
+    path: String,
 }
 
 #[derive(Deserialize)]
@@ -168,6 +231,11 @@ pub fn api_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
+        .route("/paths/resolve", post(resolve_path))
+        .route(
+            "/session/settings",
+            get(get_session_settings).put(update_session_settings),
+        )
         .route("/vault/init", post(init_vault))
         .route("/secrets", get(list_secrets))
         .route("/secrets/{alias}", get(get_secret))
@@ -179,6 +247,51 @@ pub fn api_router(state: Arc<AppState>) -> Router {
         .route("/apps/{app}/secrets", put(update_app_secrets))
         .route("/apps/{app}/secrets/{alias}", delete(unassign_secret))
         .with_state(state)
+}
+
+fn bad_request(error: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse {
+            error: error.into(),
+        }),
+    )
+}
+
+fn resolve_requested_vault_path(
+    state: &AppState,
+    requested_path: &str,
+) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
+    if requested_path.trim().is_empty() {
+        return Ok(state.vault_path());
+    }
+
+    paths::resolve_vault_path(requested_path).map_err(|e| bad_request(e.to_string()))
+}
+
+async fn resolve_path(
+    Json(body): Json<ResolvePathRequest>,
+) -> Result<Json<PathResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let resolved = match body.kind.as_str() {
+        "vault" => paths::resolve_vault_path(&body.path).map_err(|e| bad_request(e.to_string()))?,
+        "app" => paths::resolve_app_path(&body.path).map_err(|e| bad_request(e.to_string()))?,
+        _ => {
+            return Err(bad_request("Unsupported path kind"));
+        }
+    };
+
+    Ok(Json(PathResponse {
+        resolved_path: resolved,
+    }))
+}
+
+async fn get_session_settings(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<SessionSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    Ok(Json(SessionSettingsResponse {
+        vault_path: state.vault_path(),
+        relogin_required: false,
+    }))
 }
 
 async fn login(
@@ -212,7 +325,9 @@ async fn login(
         .check_rate_limit(&client_ip)
         .map_err(|e| (StatusCode::FORBIDDEN, Json(ErrorResponse { error: e })))?;
 
-    VaultStore::load(&state.vault_path, &body.password).map_err(|_| {
+    let vault_path = resolve_requested_vault_path(&state, &body.vault_path)?;
+
+    VaultStore::load(&vault_path, &body.password).map_err(|_| {
         state.auth.record_failure(&client_ip);
         (
             StatusCode::UNAUTHORIZED,
@@ -222,9 +337,10 @@ async fn login(
         )
     })?;
 
-    *state.password.write().unwrap() = SecretString::from(body.password);
+    state.set_password(body.password);
+    state.set_vault_path(vault_path.clone());
 
-    let token = state.auth.create_token(&state.vault_path).map_err(|e| {
+    let token = state.auth.create_token(&vault_path).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -234,6 +350,7 @@ async fn login(
     Ok(Json(LoginResponse {
         token,
         expires_in: 1800,
+        vault_path,
     }))
 }
 
@@ -257,8 +374,9 @@ async fn init_vault(
             }),
         ));
     }
+    let vault_path = resolve_requested_vault_path(&state, &body.vault_path)?;
     let _guard = state.vault_write_lock.lock().await;
-    if std::path::Path::new(&state.vault_path).exists() {
+    if std::path::Path::new(&vault_path).exists() {
         return Err((
             StatusCode::CONFLICT,
             Json(ErrorResponse {
@@ -266,7 +384,7 @@ async fn init_vault(
             }),
         ));
     }
-    VaultStore::create(&state.vault_path, &body.password, None).map_err(|e| {
+    VaultStore::create(&vault_path, &body.password, None).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -274,8 +392,10 @@ async fn init_vault(
             }),
         )
     })?;
+    state.set_vault_path(vault_path.clone());
+    state.clear_password();
     Ok(Json(
-        serde_json::json!({"status": "created", "vault_path": state.vault_path}),
+        serde_json::json!({"status": "created", "vault_path": vault_path}),
     ))
 }
 
@@ -284,8 +404,28 @@ async fn logout(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_auth(&state, &headers)?;
-    *state.password.write().unwrap() = SecretString::from(String::new());
+    state.clear_password();
     Ok(Json(serde_json::json!({"status": "logged_out"})))
+}
+
+async fn update_session_settings(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<SessionSettingsRequest>,
+) -> Result<Json<SessionSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let vault_path =
+        paths::resolve_vault_path(&body.vault_path).map_err(|e| bad_request(e.to_string()))?;
+    let relogin_required = vault_path != state.vault_path();
+    if relogin_required {
+        state.set_vault_path(vault_path.clone());
+        state.clear_password();
+    }
+
+    Ok(Json(SessionSettingsResponse {
+        vault_path,
+        relogin_required,
+    }))
 }
 
 async fn create_app(
@@ -296,18 +436,27 @@ async fn create_app(
     require_auth(&state, &headers)?;
     let _guard = state.vault_write_lock.lock().await;
     let mut store = get_store(&state)?;
-    store.create_app(&body.name, &body.description, &body.app_path).map_err(|e| {
-        let status = if e.to_string().contains("already exists") {
-            StatusCode::CONFLICT
-        } else {
-            StatusCode::BAD_REQUEST
-        };
-        (status, Json(ErrorResponse { error: e.to_string() }))
-    })?;
+    store
+        .create_app(&body.name, &body.description, &body.app_path)
+        .map_err(|e| {
+            let status = if e.to_string().contains("already exists") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
     store.save().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e.to_string() }),
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
         )
     })?;
     Ok((
@@ -327,7 +476,12 @@ async fn update_app(
     let mut store = get_store(&state)?;
     {
         let ad = store.get_app_entry_mut(&app).map_err(|e| {
-            (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e.to_string() }))
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
         })?;
         if let Some(desc) = body.description {
             ad.description = desc;
@@ -339,7 +493,9 @@ async fn update_app(
     store.save().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e.to_string() }),
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
         )
     })?;
     Ok(Json(serde_json::json!({"app": app, "updated": true})))
@@ -356,13 +512,17 @@ async fn delete_app(
     store.delete_app(&app).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse { error: e.to_string() }),
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
         )
     })?;
     store.save().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e.to_string() }),
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
         )
     })?;
     Ok(Json(serde_json::json!({"deleted": true, "app": app})))
@@ -494,11 +654,16 @@ async fn edit_secret(
     Json(body): Json<SecretPatchInput>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_auth(&state, &headers)?;
-    if body.key.is_none() && body.value.is_none() && body.description.is_none() && body.tags.is_none() {
+    if body.key.is_none()
+        && body.value.is_none()
+        && body.description.is_none()
+        && body.tags.is_none()
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: "Nothing to edit. Provide at least one of: key, value, description, tags.".into(),
+                error: "Nothing to edit. Provide at least one of: key, value, description, tags."
+                    .into(),
             }),
         ));
     }
@@ -518,19 +683,34 @@ async fn edit_secret(
             } else {
                 StatusCode::BAD_REQUEST
             };
-            (status, Json(ErrorResponse { error: e.to_string() }))
+            (
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
         })?;
     store.save().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e.to_string() }),
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
         )
     })?;
     let mut fields = Vec::new();
-    if body.key.is_some() { fields.push("key"); }
-    if body.value.is_some() { fields.push("value"); }
-    if body.description.is_some() { fields.push("description"); }
-    if body.tags.is_some() { fields.push("tags"); }
+    if body.key.is_some() {
+        fields.push("key");
+    }
+    if body.value.is_some() {
+        fields.push("value");
+    }
+    if body.description.is_some() {
+        fields.push("description");
+    }
+    if body.tags.is_some() {
+        fields.push("tags");
+    }
     Ok(Json(serde_json::json!({
         "alias": alias,
         "updated_fields": fields,
@@ -700,15 +880,16 @@ async fn unassign_secret(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vault::KdfParams;
     use axum::body::{to_bytes, Body};
     use axum::http::Request;
-    use crate::vault::KdfParams;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
     use tower::ServiceExt;
 
     fn build_app(vault_path: &str) -> (Router, Arc<AppState>) {
         let state = AppState::new(vault_path.to_string());
-        let router = Router::new()
-            .nest("/api", api_router(state.clone()));
+        let router = Router::new().nest("/api", api_router(state.clone()));
         (router, state)
     }
 
@@ -719,6 +900,26 @@ mod tests {
             time_cost: 1,
             parallelism: 1,
         }
+    }
+
+    fn current_dir_lock() -> &'static Mutex<()> {
+        crate::paths::process_lock()
+    }
+
+    struct CurrentDirGuard {
+        original: PathBuf,
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.original).unwrap();
+        }
+    }
+
+    fn push_current_dir(path: &Path) -> CurrentDirGuard {
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(path).unwrap();
+        CurrentDirGuard { original }
     }
 
     async fn get_token(router: &Router, password: &str) -> String {
@@ -737,7 +938,8 @@ mod tests {
     }
 
     async fn login_and_get_token(router: &Router, state: &Arc<AppState>, password: &str) -> String {
-        VaultStore::create(&state.vault_path, password, Some(fast_kdf())).unwrap();
+        let vault_path = state.vault_path();
+        VaultStore::create(&vault_path, password, Some(fast_kdf())).unwrap();
         get_token(router, password).await
     }
 
@@ -756,7 +958,7 @@ mod tests {
     #[test]
     fn app_state_new_constructs_valid_state() {
         let state = AppState::new("/tmp/test.vault.json".to_string());
-        assert_eq!(state.vault_path, "/tmp/test.vault.json");
+        assert_eq!(state.vault_path(), "/tmp/test.vault.json");
     }
 
     #[test]
@@ -780,6 +982,30 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(vp.exists(), "vault file should be created on disk");
+    }
+
+    #[tokio::test]
+    async fn init_vault_uses_requested_relative_path() {
+        let _lock = current_dir_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let _cwd = push_current_dir(tmp.path());
+        let fallback = tmp.path().join("fallback.vault.json");
+        let (app, state) = build_app(fallback.to_str().unwrap());
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/vault/init")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"password":"securepass123","vault_path":"./relative-init.vault.json"}"#,
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resolved = tmp.path().join("./relative-init.vault.json");
+        assert!(resolved.exists());
+        assert_eq!(state.vault_path(), resolved.to_string_lossy());
     }
 
     #[tokio::test]
@@ -889,6 +1115,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn login_uses_requested_relative_path() {
+        let _lock = current_dir_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let _cwd = push_current_dir(tmp.path());
+        let requested = tmp.path().join("./selected.vault.json");
+        let requested_str = requested.to_string_lossy().to_string();
+        VaultStore::create(&requested_str, "correctpw", None).unwrap();
+
+        let fallback = tmp.path().join("fallback.vault.json");
+        let (app, state) = build_app(fallback.to_str().unwrap());
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"password":"correctpw","vault_path":"./selected.vault.json"}"#,
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["vault_path"], requested.to_string_lossy().to_string());
+        assert_eq!(state.vault_path(), requested.to_string_lossy());
+    }
+
+    #[tokio::test]
+    async fn update_session_settings_requires_relogin_after_path_change() {
+        let _lock = current_dir_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let _cwd = push_current_dir(tmp.path());
+        let current = tmp.path().join("current.vault.json");
+        let current_str = current.to_string_lossy().to_string();
+        let (router, state) = build_app(&current_str);
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let req = authed_request(
+            "PUT",
+            "/api/session/settings",
+            &token,
+            Some(r#"{"vault_path":"./next.vault.json"}"#),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["relogin_required"], true);
+        assert_eq!(
+            state.vault_path(),
+            tmp.path().join("./next.vault.json").to_string_lossy()
+        );
+
+        let req = authed_request("GET", "/api/apps", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn resolve_path_endpoint_resolves_relative_app_path() {
+        let _lock = current_dir_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let _cwd = push_current_dir(tmp.path());
+        let vp = tmp.path().join("resolve-endpoint.vault.json");
+        let (router, _) = build_app(vp.to_str().unwrap());
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/paths/resolve")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"kind":"app","path":"./bin/tool"}"#))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json["resolved_path"],
+            tmp.path().join("./bin/tool").to_string_lossy().to_string()
+        );
+    }
+
+    #[tokio::test]
     async fn list_secrets_empty_vault() {
         let tmp = tempfile::tempdir().unwrap();
         let vp = tmp.path().join("list-empty.vault.json");
@@ -915,7 +1224,13 @@ mod tests {
             .set("api-key", "API_KEY", "sk-12345", "", &[])
             .unwrap();
         store
-            .set("db-url", "DATABASE_URL", "postgres://localhost/db", "DB conn", &[])
+            .set(
+                "db-url",
+                "DATABASE_URL",
+                "postgres://localhost/db",
+                "DB conn",
+                &[],
+            )
             .unwrap();
         store.save().unwrap();
 
@@ -994,7 +1309,13 @@ mod tests {
 
         let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
         store
-            .set("my-sec", "MY_SEC", "hidden-val", "a secret", &["tag1".into()])
+            .set(
+                "my-sec",
+                "MY_SEC",
+                "hidden-val",
+                "a secret",
+                &["tag1".into()],
+            )
             .unwrap();
         store.save().unwrap();
 
@@ -1100,6 +1421,27 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["app"], "myapp");
         assert_eq!(json["created"], true);
+    }
+
+    #[tokio::test]
+    async fn create_app_accepts_relative_app_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("create-rel-app.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let (router, state) = build_app(&vps);
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let payload = r#"{"name":"worker","description":"Worker","app_path":"./bin/worker"}"#;
+        let req = authed_request("POST", "/api/apps", &token, Some(payload));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let req = authed_request("GET", "/api/apps", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let apps = json["apps"].as_array().unwrap();
+        assert_eq!(apps[0]["app_path"], "./bin/worker");
     }
 
     #[tokio::test]
@@ -1353,8 +1695,12 @@ mod tests {
         let (router, _) = build_app(&vps);
         let token = get_token(&router, "testpass1234").await;
 
-        let req = authed_request("PUT", "/api/apps/myapp", &token,
-            Some(r#"{"description":"new desc","app_path":"/new/path"}"#));
+        let req = authed_request(
+            "PUT",
+            "/api/apps/myapp",
+            &token,
+            Some(r#"{"description":"new desc","app_path":"/new/path"}"#),
+        );
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
@@ -1368,19 +1714,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn update_app_fields_accepts_tilde_app_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("upd-app-tilde.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store.create_app("myapp", "old desc", "/old/path").unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request(
+            "PUT",
+            "/api/apps/myapp",
+            &token,
+            Some(r#"{"description":"new desc","app_path":"~/bin/new-path"}"#),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = authed_request("GET", "/api/apps", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let apps = json["apps"].as_array().unwrap();
+        assert_eq!(apps[0]["app_path"], "~/bin/new-path");
+    }
+
+    #[tokio::test]
     async fn edit_secret_key_only() {
         let tmp = tempfile::tempdir().unwrap();
         let vp = tmp.path().join("edit-key.vault.json");
         let vps = vp.to_str().unwrap().to_string();
 
         let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
-        store.set("my-sec", "OLD_KEY", "the-value", "desc", &["tag1".into()]).unwrap();
+        store
+            .set("my-sec", "OLD_KEY", "the-value", "desc", &["tag1".into()])
+            .unwrap();
         store.save().unwrap();
 
         let (router, _) = build_app(&vps);
         let token = get_token(&router, "testpass1234").await;
 
-        let req = authed_request("PATCH", "/api/secrets/my-sec", &token, Some(r#"{"key":"NEW_KEY"}"#));
+        let req = authed_request(
+            "PATCH",
+            "/api/secrets/my-sec",
+            &token,
+            Some(r#"{"key":"NEW_KEY"}"#),
+        );
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -1411,7 +1794,12 @@ mod tests {
         let (router, _) = build_app(&vps);
         let token = get_token(&router, "testpass1234").await;
 
-        let req = authed_request("PATCH", "/api/secrets/my-sec", &token, Some(r#"{"value":"new-val"}"#));
+        let req = authed_request(
+            "PATCH",
+            "/api/secrets/my-sec",
+            &token,
+            Some(r#"{"value":"new-val"}"#),
+        );
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
@@ -1431,7 +1819,12 @@ mod tests {
         let (router, state) = build_app(&vps);
         let token = login_and_get_token(&router, &state, "testpass1234").await;
 
-        let req = authed_request("PATCH", "/api/secrets/ghost", &token, Some(r#"{"key":"X"}"#));
+        let req = authed_request(
+            "PATCH",
+            "/api/secrets/ghost",
+            &token,
+            Some(r#"{"key":"X"}"#),
+        );
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }

@@ -53,6 +53,8 @@ secrets
 ├── run --app NAME --vault PATH -- CMD [ARGS]                      # 解析别名后注入子进程环境
 ├── export --app NAME --vault PATH [--format]                      # 导出 app 解析后的环境变量
 ├── import --from FILE --app NAME --vault PATH                     # 从 .env 文件导入（自动生成别名）
+├── deploy --to USER@HOST:/PATH --vault PATH [--overwrite]         # 通过 SSH/SFTP 上传当前 vault
+├── sync-from --from USER@HOST:/PATH --vault PATH [--overwrite]    # 通过 SSH/SFTP 下载远端 vault 到本地 vault 路径
 ├── serve --port PORT --vault PATH [--host]                        # 启动 Web 管理服务
 └── self-test                                                      # 验证安装完整性
 ```
@@ -63,8 +65,8 @@ secrets
 
 | 选项 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `--vault PATH` | `click.Path` | 配置文件中 `defaults.vault_path`，最终 fallback `~/.secrets/vault.json` | vault 文件路径。支持 `~` 展开。 |
-| `--config PATH` | `click.Path` | `~/.secrets/config.yaml` | 全局配置文件路径。 |
+| `--vault PATH` | `click.Path` | 配置文件中 `defaults.vault_path`，最终 fallback `~/.enva/vault.json` | vault 文件路径。支持 `~` 展开，且相对路径按当前工作目录解析。 |
+| `--config PATH` | `click.Path` | `~/.enva/config.yaml` | 全局配置文件路径。 |
 | `--password-stdin` | `bool` (flag) | `False` | 从 stdin 读取密码（用于脚本/CI），不使用交互式提示。 |
 | `--quiet` / `-q` | `bool` (flag) | `False` | 静默模式——仅输出数据到 stdout，不输出状态消息到 stderr。 |
 | `--verbose` / `-v` | `bool` (flag) | `False` | 详细模式——输出调试信息到 stderr。与 `--quiet` 互斥。 |
@@ -868,7 +870,7 @@ secrets-refresh() {
 
 **停止条件**: 到达 `$HOME` 的父目录或文件系统根目录。
 
-**找到配置文件后**: 读取其中的 `vault_path`（支持相对路径，相对于配置文件所在目录解析）和 `default_app` 确定注入范围。
+**找到配置文件后**: 读取其中的 `vault_path`（支持 `~`；相对路径在运行 `enva` 时按当前工作目录解析）和 `default_app` 确定注入范围。
 
 ---
 
@@ -926,7 +928,7 @@ Content-Type: application/json
 
 ```json
 {
-  "vault_path": "/home/user/.secrets/vault.json",
+  "vault_path": "/home/user/.enva/vault.json",
   "iat": 1711527000,
   "exp": 1711528800
 }
@@ -934,7 +936,7 @@ Content-Type: application/json
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `vault_path` | `string` | 当前服务的 vault 文件路径 |
+| `vault_path` | `string` | 当前服务会话选中的已解析 vault 路径；路径变更后旧 token 会失效 |
 | `iat` | `integer` | 签发时间（Unix timestamp） |
 | `exp` | `integer` | 过期时间（Unix timestamp） |
 

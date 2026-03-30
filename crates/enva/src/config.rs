@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::paths;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_version")]
@@ -356,12 +358,22 @@ impl Config {
         ConfigLoader::merge(base, overlay)
     }
 
-    pub fn resolve_vault_path(&self) -> String {
+    pub fn resolve_vault_path(&self) -> Result<String, paths::PathResolutionError> {
         let raw = self
             .vault_path
             .as_deref()
             .unwrap_or(&self.defaults.vault_path);
-        shellexpand::tilde(raw).into_owned()
+        paths::resolve_vault_path(raw)
+    }
+
+    pub fn resolve_app_path(
+        &self,
+        app: &str,
+    ) -> Result<Option<String>, paths::PathResolutionError> {
+        let Some(app_cfg) = self.apps.get(app) else {
+            return Ok(None);
+        };
+        paths::resolve_optional_app_path(&app_cfg.app_path)
     }
 }
 
@@ -398,7 +410,7 @@ mod tests {
     #[test]
     fn resolve_vault_path_expands_tilde() {
         let cfg = Config::default();
-        let resolved = cfg.resolve_vault_path();
+        let resolved = cfg.resolve_vault_path().unwrap();
         assert!(!resolved.contains('~'));
         assert!(resolved.contains(".enva"));
         assert!(resolved.contains("vault.json"));
@@ -408,7 +420,28 @@ mod tests {
     fn resolve_vault_path_uses_override() {
         let mut cfg = Config::default();
         cfg.vault_path = Some("/tmp/my-vault.json".to_owned());
-        assert_eq!(cfg.resolve_vault_path(), "/tmp/my-vault.json");
+        assert_eq!(cfg.resolve_vault_path().unwrap(), "/tmp/my-vault.json");
+    }
+
+    #[test]
+    fn resolve_app_path_returns_none_when_unset() {
+        let cfg = Config::default();
+        assert_eq!(cfg.resolve_app_path("backend").unwrap(), None);
+    }
+
+    #[test]
+    fn resolve_app_path_resolves_relative_value() {
+        let mut cfg = Config::default();
+        cfg.apps.insert(
+            "backend".to_owned(),
+            AppConfig {
+                app_path: "./bin/backend".to_owned(),
+                ..AppConfig::default()
+            },
+        );
+
+        let resolved = cfg.resolve_app_path("backend").unwrap().unwrap();
+        assert!(resolved.ends_with("/./bin/backend"));
     }
 
     #[test]
