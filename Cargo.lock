@@ -646,7 +646,7 @@ dependencies = [
 
 [[package]]
 name = "enva"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "enva-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes-gcm",
  "argon2",

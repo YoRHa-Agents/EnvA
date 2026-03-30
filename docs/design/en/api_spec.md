@@ -634,7 +634,7 @@ No additional parameters. Does not require `--vault` (no real vault is accessed)
 ```
 Secrets Manager Self-Test
 ─────────────────────────
-Enva:          0.1.1 (x86_64-linux)
+Enva:          0.1.2 (x86_64-linux)
 aes-gcm:       ✓ 0.10
 argon2:        ✓ 0.5
 clap:          ✓ 4.5
