@@ -28,6 +28,29 @@ fn vault_init_creates_file() {
 }
 
 #[test]
+fn vault_init_expands_tilde_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    enva_cmd()
+        .current_dir(tmp.path())
+        .env("HOME", &home)
+        .args([
+            "vault",
+            "init",
+            "--vault",
+            "~/tilde.vault.json",
+            "--password-stdin",
+        ])
+        .write_stdin("testpass123\n")
+        .assert()
+        .success();
+
+    assert!(home.join("tilde.vault.json").exists());
+}
+
+#[test]
 fn vault_set_get_roundtrip() {
     let tmp = tempfile::tempdir().unwrap();
     let vp = create_test_vault(tmp.path(), "testpass");
@@ -84,6 +107,72 @@ fn app_injection_dry_run() {
         .success()
         .stdout(predicate::str::contains("API_KEY"))
         .stdout(predicate::str::contains("<redacted>"));
+}
+
+#[cfg(unix)]
+#[test]
+fn relative_vault_path_and_config_app_path_launch() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let vault_rel = "./relative.vault.json";
+
+    enva_cmd()
+        .current_dir(tmp.path())
+        .args(["vault", "init", "--vault", vault_rel, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success();
+
+    enva_cmd()
+        .current_dir(tmp.path())
+        .args([
+            "vault",
+            "set",
+            "launch-secret",
+            "-k",
+            "RELATIVE_APP_SECRET",
+            "-V",
+            "launched-from-relative",
+        ])
+        .args(["--vault", vault_rel, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success();
+
+    enva_cmd()
+        .current_dir(tmp.path())
+        .args(["vault", "assign", "launch-secret", "--app", "relapp"])
+        .args(["--vault", vault_rel, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success();
+
+    let bin_dir = tmp.path().join("bin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let script_path = bin_dir.join("print-secret.sh");
+    fs::write(
+        &script_path,
+        "#!/bin/sh\nprintf '%s' \"$RELATIVE_APP_SECRET\"\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&script_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&script_path, permissions).unwrap();
+
+    fs::write(
+        tmp.path().join(".enva.yaml"),
+        "apps:\n  relapp:\n    app_path: \"./bin/print-secret.sh\"\n",
+    )
+    .unwrap();
+
+    enva_cmd()
+        .current_dir(tmp.path())
+        .args(["--vault", vault_rel, "--password-stdin", "relapp"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("launched-from-relative"));
 }
 
 #[test]
@@ -407,7 +496,9 @@ fn vault_help_shows_subcommands() {
         .stdout(predicate::str::contains("get"))
         .stdout(predicate::str::contains("assign"))
         .stdout(predicate::str::contains("export"))
-        .stdout(predicate::str::contains("import-env"));
+        .stdout(predicate::str::contains("import-env"))
+        .stdout(predicate::str::contains("deploy"))
+        .stdout(predicate::str::contains("sync-from"));
 }
 
 #[test]

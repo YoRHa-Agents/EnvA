@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Vault sync**: Added `enva vault deploy --to user@host:/path` and `enva vault sync-from --from user@host:/path` for SSH/SFTP-based whole-vault transfer, with explicit overwrite handling and post-transfer validation.
+- **Path UX**: Added absolute-path toggles and resolved-path previews in the web login, settings, and app edit flows so vault and application paths can be reviewed before saving.
+
+### Changed
+
+- **Path resolution**: Unified `--vault`, config `vault_path`, `vault init --vault`, and direct app launch `app_path` handling so `~`, relative, and absolute paths resolve consistently from the current working directory.
+- **App launch fallback**: `apps.<name>.app_path` in `.enva.yaml` now serves as a direct-launch fallback when the vault-stored app path is empty.
+- **Web settings**: Changing the selected vault path in the web UI now updates the backend session state and forces re-authentication so tokens stay bound to the active vault file.
+- **Documentation**: Updated README, config references, API specs, and project config examples to match the implemented vault and app path semantics.
+
+### Fixed
+
+- **CLI flags**: Removed the `serve -p` short-flag collision with the global password flag so debug and release builds can start the web server consistently.
+
 ## [0.1.1] - 2026-03-30
 
 ### Added

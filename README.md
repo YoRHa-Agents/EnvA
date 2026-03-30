@@ -172,7 +172,7 @@ echo "$VAULT_PASSWORD" | enva --password-stdin backend -- ./start-server
 
 | Flag | Env Var | Description |
 |------|---------|-------------|
-| `--vault <PATH>` | `ENVA_VAULT_PATH` | Path to vault file |
+| `--vault <PATH>` | `ENVA_VAULT_PATH` | Path to vault file; supports `~` and relative paths resolved from the current working directory |
 | `--config <PATH>` | `ENVA_CONFIG` | Path to config file |
 | `--password-stdin` | | Read password from stdin |
 | `-q, --quiet` | | Suppress non-essential output |
@@ -193,8 +193,12 @@ enva vault assign <alias> --app <name> [--as <OVERRIDE_KEY>]
 enva vault unassign <alias> --app <name>
 enva vault export --app <name> [--format json]
 enva vault import-env --from .env --app <name>
+enva vault deploy --to user@host:/path/to/vault.json [--ssh-port 22] [--ssh-key ~/.ssh/id_ed25519] [--overwrite]
+enva vault sync-from --from user@host:/path/to/vault.json [--ssh-port 22] [--ssh-password ...] [--overwrite]
 enva vault self-test
 ```
+
+Vault and application paths accept `~`, relative, or absolute input. Relative paths are resolved from the current working directory at the moment `enva` runs. For direct `enva <APP>` launches, the vault-stored `app_path` takes precedence; if it is blank, `.enva.yaml` `apps.<name>.app_path` is used as a fallback.
 
 ## Configuration
 

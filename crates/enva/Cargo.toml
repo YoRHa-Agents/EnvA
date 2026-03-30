@@ -37,6 +37,7 @@ tempfile = "3"
 rand = "0.8"
 secrecy = { version = "0.10", features = ["serde"] }
 zeroize = { version = "1.7", features = ["derive"] }
+ssh2 = "0.9.5"
 
 [dev-dependencies]
 assert_cmd = "2"

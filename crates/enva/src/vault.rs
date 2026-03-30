@@ -565,10 +565,7 @@ impl VaultStore {
             let mut sorted_ovr: Vec<_> = ad.overrides.iter().collect();
             sorted_ovr.sort_by_key(|(k, _)| (*k).clone());
             let ovr_str: Vec<String> = sorted_ovr.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            parts.push(format!(
-                "apps:{app_name}:overrides={}",
-                ovr_str.join(",")
-            ));
+            parts.push(format!("apps:{app_name}:overrides={}", ovr_str.join(",")));
         }
         parts.sort();
         parts.join("\n").into_bytes()
@@ -777,7 +774,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ps = dir.path().join("v.json").to_str().unwrap().to_string();
         let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
-        assert!(store.create_app("my-valid-app", "desc", "/usr/bin/app").is_ok());
+        assert!(store
+            .create_app("my-valid-app", "desc", "/usr/bin/app")
+            .is_ok());
         assert!(store.create_app("app123", "", "").is_ok());
     }
 
@@ -904,9 +903,7 @@ mod tests {
         let ps = dir.path().join("v.json").to_str().unwrap().to_string();
         let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
         store.set("db", "DB_URL", "old-val", "desc", &[]).unwrap();
-        store
-            .edit("db", None, Some("new-val"), None, None)
-            .unwrap();
+        store.edit("db", None, Some("new-val"), None, None).unwrap();
         store.save().unwrap();
         let store = VaultStore::load(&ps, "pw").unwrap();
         assert_eq!(store.get("db").unwrap(), "new-val");
@@ -964,9 +961,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         let mut store = VaultStore::load(&ps, "pw").unwrap();
-        store
-            .edit("s1", None, Some("new-val"), None, None)
-            .unwrap();
+        store.edit("s1", None, Some("new-val"), None, None).unwrap();
         store.save().unwrap();
         let store = VaultStore::load(&ps, "pw").unwrap();
         let after = store.list(None).unwrap();

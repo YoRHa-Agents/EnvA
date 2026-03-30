@@ -1,4 +1,6 @@
 mod config;
+mod paths;
+mod sync;
 mod vault;
 mod web;
 
@@ -62,7 +64,7 @@ enum Commands {
     /// Start the web configuration UI
     Serve {
         /// Port to listen on
-        #[arg(short, long, default_value = "8080")]
+        #[arg(long, default_value = "8080")]
         port: u16,
         /// Host to bind to
         #[arg(long, default_value = "127.0.0.1")]
@@ -170,6 +172,48 @@ enum VaultCommands {
         #[arg(short, long)]
         app: String,
     },
+    /// Upload the current vault to a remote SSH server
+    Deploy {
+        /// Remote target in the form user@host:/path/to/vault.json
+        #[arg(long)]
+        to: String,
+        /// SSH port
+        #[arg(long, default_value_t = 22)]
+        ssh_port: u16,
+        /// SSH password (falls back to SSH agent when omitted)
+        #[arg(long, env = "ENVA_SSH_PASSWORD")]
+        ssh_password: Option<String>,
+        /// SSH private key path
+        #[arg(long)]
+        ssh_key: Option<String>,
+        /// SSH private key passphrase
+        #[arg(long, env = "ENVA_SSH_PASSPHRASE")]
+        ssh_passphrase: Option<String>,
+        /// Replace the remote vault if it already exists
+        #[arg(long)]
+        overwrite: bool,
+    },
+    /// Download a vault from a remote SSH server
+    SyncFrom {
+        /// Remote target in the form user@host:/path/to/vault.json
+        #[arg(long = "from")]
+        from: String,
+        /// SSH port
+        #[arg(long, default_value_t = 22)]
+        ssh_port: u16,
+        /// SSH password (falls back to SSH agent when omitted)
+        #[arg(long, env = "ENVA_SSH_PASSWORD")]
+        ssh_password: Option<String>,
+        /// SSH private key path
+        #[arg(long)]
+        ssh_key: Option<String>,
+        /// SSH private key passphrase
+        #[arg(long, env = "ENVA_SSH_PASSPHRASE")]
+        ssh_passphrase: Option<String>,
+        /// Replace the local vault if it already exists
+        #[arg(long)]
+        overwrite: bool,
+    },
     /// Verify installation integrity
     SelfTest,
 }
@@ -217,15 +261,47 @@ fn get_password(cli: &Cli) -> Result<String, Box<dyn std::error::Error>> {
     Ok(rpassword::prompt_password("Vault password: ")?)
 }
 
-fn resolve_vault_path(cli: &Cli) -> String {
+fn resolve_vault_path(cli: &Cli) -> Result<String, paths::PathResolutionError> {
     if let Some(ref vp) = cli.vault {
-        tracing::debug!(vault_path = %vp, "using vault path from --vault flag");
-        return vp.clone();
+        let resolved = paths::resolve_vault_path(vp)?;
+        tracing::debug!(raw_vault_path = %vp, resolved_vault_path = %resolved, "using vault path from --vault flag");
+        return Ok(resolved);
     }
     let cfg = config::ConfigLoader::load(cli.config.as_deref(), cli.env.as_deref());
-    let resolved = cfg.resolve_vault_path();
+    let resolved = cfg.resolve_vault_path()?;
     tracing::debug!(vault_path = %resolved, "resolved vault path from config");
-    resolved
+    Ok(resolved)
+}
+
+fn resolve_launch_app_path(
+    store: &vault::VaultStore,
+    cfg: &config::Config,
+    app_name: &str,
+) -> Result<Option<String>, paths::PathResolutionError> {
+    let stored_app_path = store.get_app_path(app_name).unwrap_or_default();
+    if let Some(resolved) = paths::resolve_optional_app_path(&stored_app_path)? {
+        tracing::debug!(app = %app_name, raw_app_path = %stored_app_path, resolved_app_path = %resolved, "resolved application path from vault");
+        return Ok(Some(resolved));
+    }
+
+    if let Some(resolved) = cfg.resolve_app_path(app_name)? {
+        tracing::debug!(app = %app_name, resolved_app_path = %resolved, "resolved application path from config");
+        return Ok(Some(resolved));
+    }
+
+    Ok(None)
+}
+
+fn ssh_auth_options(
+    ssh_password: Option<&String>,
+    ssh_key: Option<&String>,
+    ssh_passphrase: Option<&String>,
+) -> sync::SshAuthOptions {
+    sync::SshAuthOptions {
+        password: ssh_password.cloned(),
+        key_path: ssh_key.cloned(),
+        passphrase: ssh_passphrase.cloned(),
+    }
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
@@ -239,7 +315,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_serve(cli: &Cli, host: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    let vp = resolve_vault_path(cli);
+    let vp = resolve_vault_path(cli)?;
     tracing::debug!(host, port, vault_path = %vp, "starting web server");
     if !cli.quiet {
         println!("Enva Web UI: http://{host}:{port}");
@@ -263,10 +339,10 @@ fn run_app(cli: &Cli, args: &[String]) -> Result<(), Box<dyn std::error::Error>>
         None => args[1..].iter().map(|s| s.as_str()).collect(),
     };
 
-    let vp = resolve_vault_path(cli);
+    let vp = resolve_vault_path(cli)?;
     let pw = get_password(cli)?;
     let store = vault::VaultStore::load(&vp, &pw)?;
-    let resolved = store.get_app_secrets(app_name)?;
+    let injected = store.get_app_secrets(app_name)?;
 
     let cfg = config::ConfigLoader::load(cli.config.as_deref(), cli.env.as_deref());
     let override_system = cfg
@@ -275,17 +351,17 @@ fn run_app(cli: &Cli, args: &[String]) -> Result<(), Box<dyn std::error::Error>>
         .map(|a| a.override_system)
         .unwrap_or(false);
     let resolved: std::collections::BTreeMap<String, String> = if override_system {
-        resolved
+        injected
     } else {
-        resolved
+        injected
             .into_iter()
             .filter(|(k, _)| std::env::var(k).is_err())
             .collect()
     };
+    let launch_app_path = resolve_launch_app_path(&store, &cfg, app_name)?;
 
     if command_args.is_empty() {
-        let app_path = store.get_app_path(app_name).unwrap_or_default();
-        if !app_path.is_empty() {
+        if let Some(ref app_path) = launch_app_path {
             tracing::debug!(app = %app_name, app_path = %app_path, "launching via app_path");
             #[cfg(unix)]
             {
@@ -309,7 +385,7 @@ fn run_app(cli: &Cli, args: &[String]) -> Result<(), Box<dyn std::error::Error>>
                 println!("  {key}=<redacted>");
             }
             println!("\nRun with a command to inject: enva {app_name} -- <cmd>");
-            if store.get_app_path(app_name).unwrap_or_default().is_empty() {
+            if launch_app_path.is_none() {
                 println!("Tip: set app_path to launch directly with: enva {app_name}");
             }
         }
@@ -338,8 +414,9 @@ fn run_app(cli: &Cli, args: &[String]) -> Result<(), Box<dyn std::error::Error>>
 fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         VaultCommands::Init { vault: vault_path } => {
-            if std::path::Path::new(vault_path).exists() {
-                return Err(format!("Vault already exists at {vault_path}. Delete it first or choose a different path.").into());
+            let resolved_vault_path = paths::resolve_vault_path(vault_path)?;
+            if std::path::Path::new(&resolved_vault_path).exists() {
+                return Err(format!("Vault already exists at {resolved_vault_path}. Delete it first or choose a different path.").into());
             }
             let password = if let Some(ref pw) = cli.password {
                 pw.clone()
@@ -356,9 +433,9 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
                 }
                 password
             };
-            vault::VaultStore::create(vault_path, &password, None)?;
+            vault::VaultStore::create(&resolved_vault_path, &password, None)?;
             if !cli.quiet {
-                println!("Vault created: {vault_path}");
+                println!("Vault created: {resolved_vault_path}");
             }
         }
         VaultCommands::Set {
@@ -368,7 +445,7 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             description,
             tags,
         } => {
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let mut store = vault::VaultStore::load(&vp, &pw)?;
             let tag_list: Vec<String> = tags
@@ -392,7 +469,7 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             if key.is_none() && value.is_none() && description.is_none() && tags.is_none() {
                 return Err("Nothing to edit. Provide at least one of --key, --value, --description, or --tags.".into());
             }
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let mut store = vault::VaultStore::load(&vp, &pw)?;
             let tag_list: Option<Vec<String>> = tags.as_ref().map(|t| {
@@ -411,25 +488,30 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             store.save()?;
             if !cli.quiet {
                 let mut fields = Vec::new();
-                if key.is_some() { fields.push("key"); }
-                if value.is_some() { fields.push("value"); }
-                if description.is_some() { fields.push("description"); }
-                if tag_list.is_some() { fields.push("tags"); }
-                println!(
-                    "Updated \x1b[36m{alias}\x1b[0m ({})",
-                    fields.join(", ")
-                );
+                if key.is_some() {
+                    fields.push("key");
+                }
+                if value.is_some() {
+                    fields.push("value");
+                }
+                if description.is_some() {
+                    fields.push("description");
+                }
+                if tag_list.is_some() {
+                    fields.push("tags");
+                }
+                println!("Updated \x1b[36m{alias}\x1b[0m ({})", fields.join(", "));
             }
         }
         VaultCommands::Get { alias } => {
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let store = vault::VaultStore::load(&vp, &pw)?;
             let value = store.get(alias)?;
             println!("{value}");
         }
         VaultCommands::List { app } => {
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let store = vault::VaultStore::load(&vp, &pw)?;
             let secrets = store.list(app.as_deref())?;
@@ -466,7 +548,7 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
                     return Ok(());
                 }
             }
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let mut store = vault::VaultStore::load(&vp, &pw)?;
             store.delete(alias)?;
@@ -480,7 +562,7 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             app,
             override_key,
         } => {
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let mut store = vault::VaultStore::load(&vp, &pw)?;
             store.assign(app, alias, override_key.as_deref())?;
@@ -494,7 +576,7 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             }
         }
         VaultCommands::Unassign { alias, app } => {
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let mut store = vault::VaultStore::load(&vp, &pw)?;
             store.unassign(app, alias)?;
@@ -504,7 +586,7 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             }
         }
         VaultCommands::Export { app, format } => {
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let store = vault::VaultStore::load(&vp, &pw)?;
             let resolved = store.get_app_secrets(app)?;
@@ -518,7 +600,7 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             }
         }
         VaultCommands::ImportEnv { from_file, app } => {
-            let vp = resolve_vault_path(cli);
+            let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let mut store = vault::VaultStore::load(&vp, &pw)?;
             if store.list_apps().iter().all(|a| a.name != *app) {
@@ -543,6 +625,58 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             store.save()?;
             if !cli.quiet {
                 println!("Imported {count} secrets into app '{app}'");
+            }
+        }
+        VaultCommands::Deploy {
+            to,
+            ssh_port,
+            ssh_password,
+            ssh_key,
+            ssh_passphrase,
+            overwrite,
+        } => {
+            let vp = resolve_vault_path(cli)?;
+            let pw = get_password(cli)?;
+            sync::deploy_vault(
+                &vp,
+                &pw,
+                to,
+                *ssh_port,
+                *overwrite,
+                ssh_auth_options(
+                    ssh_password.as_ref(),
+                    ssh_key.as_ref(),
+                    ssh_passphrase.as_ref(),
+                ),
+            )?;
+            if !cli.quiet {
+                println!("Deployed vault to {to}");
+            }
+        }
+        VaultCommands::SyncFrom {
+            from,
+            ssh_port,
+            ssh_password,
+            ssh_key,
+            ssh_passphrase,
+            overwrite,
+        } => {
+            let vp = resolve_vault_path(cli)?;
+            let pw = get_password(cli)?;
+            sync::sync_from_remote(
+                &vp,
+                &pw,
+                from,
+                *ssh_port,
+                *overwrite,
+                ssh_auth_options(
+                    ssh_password.as_ref(),
+                    ssh_key.as_ref(),
+                    ssh_passphrase.as_ref(),
+                ),
+            )?;
+            if !cli.quiet {
+                println!("Synced vault from {from}");
             }
         }
         VaultCommands::SelfTest => {
@@ -575,4 +709,90 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    use super::*;
+
+    fn current_dir_lock() -> &'static Mutex<()> {
+        crate::paths::process_lock()
+    }
+
+    struct CurrentDirGuard {
+        original: PathBuf,
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.original).unwrap();
+        }
+    }
+
+    fn push_current_dir(path: &Path) -> CurrentDirGuard {
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(path).unwrap();
+        CurrentDirGuard { original }
+    }
+
+    #[test]
+    fn resolve_launch_app_path_prefers_vault_app_path() {
+        let _lock = current_dir_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let _cwd = push_current_dir(tmp.path());
+
+        let vault_path = tmp.path().join("vault.json");
+        let mut store =
+            vault::VaultStore::create(vault_path.to_str().unwrap(), "testpass", None).unwrap();
+        store.create_app("backend", "", "./bin/from-vault").unwrap();
+
+        let mut cfg = config::Config::default();
+        cfg.apps.insert(
+            "backend".to_owned(),
+            config::AppConfig {
+                app_path: "./bin/from-config".to_owned(),
+                ..config::AppConfig::default()
+            },
+        );
+
+        let resolved = resolve_launch_app_path(&store, &cfg, "backend")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            resolved,
+            tmp.path().join("./bin/from-vault").to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn resolve_launch_app_path_falls_back_to_config_app_path() {
+        let _lock = current_dir_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let _cwd = push_current_dir(tmp.path());
+
+        let vault_path = tmp.path().join("vault.json");
+        let mut store =
+            vault::VaultStore::create(vault_path.to_str().unwrap(), "testpass", None).unwrap();
+        store.create_app("backend", "", "").unwrap();
+
+        let mut cfg = config::Config::default();
+        cfg.apps.insert(
+            "backend".to_owned(),
+            config::AppConfig {
+                app_path: "./bin/from-config".to_owned(),
+                ..config::AppConfig::default()
+            },
+        );
+
+        let resolved = resolve_launch_app_path(&store, &cfg, "backend")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            resolved,
+            tmp.path().join("./bin/from-config").to_string_lossy()
+        );
+    }
 }

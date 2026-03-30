@@ -1,6 +1,6 @@
 # Configuration Reference
 
-> **摘要 (Chinese Summary):** 秘钥管理器五层配置体系的完整参考文档。涵盖全局配置 (`~/.secrets/config.yaml`)、项目配置 (`.enva.yaml`)、环境覆盖 (`.enva.{env}.yaml`)、CLI flags/环境变量以及内置默认值。每个字段均定义了路径、类型、默认值、说明、校验规则、示例和可设定层级。合并优先级：CLI > 环境覆盖 > 项目配置 > 全局配置 > 内置默认值。
+> **摘要 (Chinese Summary):** 秘钥管理器五层配置体系的完整参考文档。涵盖全局配置 (`~/.enva/config.yaml`)、项目配置 (`.enva.yaml`)、环境覆盖 (`.enva.{env}.yaml`)、CLI flags/环境变量以及内置默认值。每个字段均定义了路径、类型、默认值、说明、校验规则、示例和可设定层级。合并优先级：CLI > 环境覆盖 > 项目配置 > 全局配置 > 内置默认值。
 
 ---
 
@@ -13,7 +13,7 @@ Configuration is organized into five layers ordered by priority from highest to 
 | **Layer 5** (highest) | CLI flags / environment variables | Command-line arguments, `ENVA_*` environment variables | Single execution | N/A |
 | **Layer 4** | Environment override | `.enva.{env}.yaml` | Project + specific environment | YAML |
 | **Layer 3** | Project config | `.enva.yaml` | Project directory | YAML |
-| **Layer 2** | Global config | `~/.secrets/config.yaml` | User-level, cross-project | YAML |
+| **Layer 2** | Global config | `~/.enva/config.yaml` | User-level, cross-project | YAML |
 | **Layer 1** (lowest) | Built-in defaults | Hard-coded in the program | Global | N/A |
 
 ---
@@ -37,7 +37,7 @@ Configuration is organized into five layers ordered by priority from highest to 
 
 ## 3. Global Configuration Field Reference (Layer 2)
 
-File path: `~/.secrets/config.yaml`
+File path: `~/.enva/config.yaml`
 
 ### 3.1 Top-Level Fields
 
@@ -49,7 +49,7 @@ File path: `~/.secrets/config.yaml`
 
 | Field Path | Type | Default | Description | Validation | Example | Applicable Layers |
 |------------|------|---------|-------------|------------|---------|-------------------|
-| `defaults.vault_path` | string | `"~/.secrets/vault.json"` | Default vault file path; can be overridden by project config or `--vault` | Optional; path string, supports `~` expansion | `"~/.secrets/vault.json"` | L2, L3, L4, L5 |
+| `defaults.vault_path` | string | `"~/.enva/vault.json"` | Default vault file path; can be overridden by project config or `--vault` | Optional; path string, supports `~` expansion and relative paths resolved from the current working directory | `"~/.enva/vault.json"` | L2, L3, L4, L5 |
 | `defaults.password_timeout` | int | `300` | Seconds to cache the password in memory; `0` means prompt for every operation | Optional; `>= 0` | `300` | L2 |
 | `defaults.password_cache` | enum | `"memory"` | Password caching mode | Optional; one of `memory` \| `keyring` \| `none` | `"memory"` | L2 |
 
@@ -120,7 +120,7 @@ File path: `.enva.yaml` (project root directory)
 
 | Field Path | Type | Default | Description | Validation | Example | Applicable Layers |
 |------------|------|---------|-------------|------------|---------|-------------------|
-| `vault_path` | string | Inherited from global `defaults.vault_path` | Project-specific vault file path | Optional; path string, supports relative paths (relative to the project root) | `"./secrets/project.vault.json"` | L3, L4, L5 |
+| `vault_path` | string | Inherited from global `defaults.vault_path` | Project-specific vault file path | Optional; path string, supports `~` and relative paths resolved from the current working directory | `"./secrets/project.vault.json"` | L3, L4, L5 |
 | `default_app` | string | `""` | Default `--app` value; used when CLI does not specify `--app` | Optional; must match an app name defined under `apps` | `"backend"` | L3, L4, L5 |
 
 ### 4.2 apps.\<name\> — Application Definitions (Alias Reference Model)
@@ -132,7 +132,7 @@ File path: `.enva.yaml` (project root directory)
 | `apps.<name>.description` | string | `""` | Human-readable description of the application; displayed in `enva vault list` output | Optional | `"Backend API service"` | L3, L4 |
 | `apps.<name>.secrets` | list\[string\] | `[]` | List of secret aliases referenced by this app; each alias points to a secret in the pool | Optional; list of strings, each must be a defined alias in the secrets pool | `["prod-db", "jwt-secret", "shared-sentry"]` | L3, L4 |
 | `apps.<name>.overrides` | map\[string, string\] | `{}` | Map of alias → custom env var name for injection override; aliases not in this map use the secret's own `key` value for injection | Optional; keys are aliases, values are valid env var names | `{"prod-db": "DB_URL"}` | L3, L4 |
-| `apps.<name>.env_prefix` | string | `""` | Prefix added to environment variable names during injection; for example, `"MYAPP_"` turns `DB_URL` into `MYAPP_DB_URL` | Optional; must be a valid env var name prefix (uppercase letters, digits, underscores) | `""` | L3, L4 |
+| `apps.<name>.app_path` | string | `""` | Local executable path used when running `enva <APP>` without an explicit `-- <cmd>` override | Optional; supports `~`, relative paths resolved from the current working directory at launch time, and absolute paths. If the vault entry for the app has a non-empty `app_path`, that value wins; otherwise this config value is used as a fallback | `"./bin/backend"` | L3, L4 |
 | `apps.<name>.override_system` | bool | `false` | Whether to override existing system environment variables with vault values when a name conflict occurs | Optional | `false` | L3, L4 |
 
 **Alias resolution injection logic**:
@@ -152,6 +152,7 @@ for alias in app.secrets:
 apps:
   backend:
     description: "Backend API"
+    app_path: "./bin/backend"
     secrets: ["prod-db", "jwt-secret", "shared-sentry"]
     overrides:
       prod-db: "DB_URL"
@@ -164,6 +165,7 @@ apps:
 
 In this example:
 - `backend` references 3 secrets; `prod-db` is injected as `DB_URL` (instead of the default `DATABASE_URL`)
+- `backend` can also be launched directly with `enva backend`, resolving `./bin/backend` from the current working directory
 - `frontend` references 1 secret; injected as `NEXT_PUBLIC_SENTRY_DSN` (instead of the default `SENTRY_DSN`)
 - `shared-sentry` is shared across multiple apps without duplication
 
@@ -190,7 +192,7 @@ When no layer has set a given field, the following built-in defaults are used:
 | Field Path | Built-in Default |
 |------------|------------------|
 | `version` | `"1"` |
-| `defaults.vault_path` | `"~/.secrets/vault.json"` |
+| `defaults.vault_path` | `"~/.enva/vault.json"` |
 | `defaults.password_timeout` | `300` |
 | `defaults.password_cache` | `"memory"` |
 | `defaults.kdf.algorithm` | `"argon2id"` |
@@ -216,7 +218,7 @@ When no layer has set a given field, the following built-in defaults are used:
 | `apps.<name>.description` | `""` |
 | `apps.<name>.secrets` | `[]` |
 | `apps.<name>.overrides` | `{}` |
-| `apps.<name>.env_prefix` | `""` |
+| `apps.<name>.app_path` | `""` |
 | `apps.<name>.override_system` | `false` |
 
 ---
@@ -232,7 +234,7 @@ CLI flags / env vars        (Layer 5, highest)
        ↓ overrides
 .enva.yaml               (Layer 3, project config)
        ↓ overrides
-~/.secrets/config.yaml      (Layer 2, global config)
+~/.enva/config.yaml         (Layer 2, global config)
        ↓ overrides
 Built-in defaults           (Layer 1, lowest)
 ```
@@ -280,7 +282,7 @@ At startup, the program searches for the global configuration directory in the f
 | 1 | All platforms | Path specified by `$ENVA_CONFIG` | `--config` or `ENVA_CONFIG` environment variable is set |
 | 2 | Linux | `$XDG_CONFIG_HOME/secrets/config.yaml` | `$XDG_CONFIG_HOME` is set |
 | 3 | macOS | `~/Library/Application Support/secrets/config.yaml` | macOS detected (`sys.platform == "darwin"`) |
-| 4 | All platforms | `~/.secrets/config.yaml` | Universal fallback |
+| 4 | All platforms | `~/.enva/config.yaml` | Universal fallback |
 
 **Project configuration discovery**: Starting from the current working directory, traverse upward through parent directories searching for `.enva.yaml` until the filesystem root is reached. The first file found is used as the project configuration; `.enva.{env}.yaml` files in the same directory serve as environment override candidates.
 
@@ -290,7 +292,7 @@ Config discovery uses the following two sources:
 
 | Priority | Path | Description |
 |----------|------|-------------|
-| 1 | `~/.secrets/config.yaml` | User-level global configuration |
+| 1 | `~/.enva/config.yaml` | User-level global configuration |
 | 2 | `.enva.yaml` in the current directory | Current project configuration |
 
 In standalone mode, host-framework integration fields in the config (if present) are ignored (no error is raised; they are silently skipped).
@@ -303,7 +305,7 @@ In standalone mode, host-framework integration fields in the config (if present)
 
 | Type | Constraints |
 |------|-------------|
-| string | UTF-8 string; path-type fields support `~` expansion and environment variable expansion |
+| string | UTF-8 string; path-type fields support `~` expansion. Relative paths are joined to the current working directory. Environment-variable interpolation is not applied. |
 | int | 64-bit signed integer |
 | bool | `true` / `false` (native YAML booleans) |
 | enum | Only the values listed in this document are allowed; case-sensitive |
@@ -335,7 +337,7 @@ In standalone mode, host-framework integration fields in the config (if present)
    - Keys in the overrides map must appear in the secrets list
    - default_app must be defined under apps (or be empty)
 5. Merge all config layers (Layer 1 → Layer 5)
-6. Path expansion (~ → $HOME, relative paths → absolute paths)
+6. Path expansion (`~` → `$HOME`, relative paths → joined against the current working directory)
 7. Return a frozen configuration object
 ```
 
