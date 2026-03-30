@@ -200,7 +200,38 @@ echo "long-secret-value" | secrets set my-secret --key MY_SECRET --value - --vau
 
 ---
 
-#### 1.4.3 `secrets get`
+#### 1.4.3 `secrets edit`
+
+**Purpose**: Edit individual fields of an existing secret without replacing unspecified fields. Designed for migration workflows — update connection strings, keys, or metadata after moving a vault to a new device.
+
+**Signature**:
+
+```
+secrets edit ALIAS [--key KEY] [--value VALUE] [--description DESC] [--tags TAGS]
+```
+
+| Parameter/Option | Type | Required | Default | Description |
+|------------------|------|----------|---------|-------------|
+| `ALIAS` | `str` (argument) | Yes | — | Secret alias to edit |
+| `--key` | `str` | No | Unchanged | New environment variable name |
+| `--value` | `str` | No | Unchanged | New secret value |
+| `--description` | `str` | No | Unchanged | New description |
+| `--tags` | `str` | No | Unchanged | Comma-separated tags (replaces existing) |
+
+**Behavior**:
+1. At least one optional flag must be provided; otherwise exit with error
+2. Read and decrypt the vault, verify HMAC
+3. Look up the alias — if not found, exit code `3`
+4. For each provided flag, update that field; leave unspecified fields unchanged
+5. If `--value` is provided, re-encrypt with AES-256-GCM
+6. Update `updated_at` timestamp; preserve `created_at`
+7. Recompute HMAC and save
+
+**stdout** (non-quiet): `Updated <ALIAS> (key, value, ...)` listing which fields changed
+
+---
+
+#### 1.4.4 `secrets get`
 
 **Purpose**: Decrypt and output the value of a secret by alias.
 
@@ -242,7 +273,7 @@ DB_URL=$(secrets get prod-db --vault ./vault.json)
 
 ---
 
-#### 1.4.4 `secrets list`
+#### 1.4.5 `secrets list`
 
 **Purpose**: List secrets in the pool (values are not exposed). Optionally filter by app.
 

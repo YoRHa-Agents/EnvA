@@ -305,6 +305,45 @@ impl VaultStore {
         Ok(())
     }
 
+    pub fn edit(
+        &mut self,
+        alias: &str,
+        new_key: Option<&str>,
+        new_value: Option<&str>,
+        new_description: Option<&str>,
+        new_tags: Option<&[String]>,
+    ) -> Result<(), VaultError> {
+        let entry = self
+            .data
+            .secrets
+            .get(alias)
+            .ok_or_else(|| VaultError::AliasNotFound(alias.into()))?
+            .clone();
+
+        let key = new_key.unwrap_or(&entry.key);
+        let description = new_description.unwrap_or(&entry.description);
+        let tags = new_tags.unwrap_or(&entry.tags);
+        let encrypted = if let Some(v) = new_value {
+            vault_crypto::encrypt_value(&self.enc_key, v, alias)
+                .map_err(|e| VaultError::Crypto(e.to_string()))?
+        } else {
+            entry.value.clone()
+        };
+
+        self.data.secrets.insert(
+            alias.into(),
+            SecretEntry {
+                key: key.into(),
+                value: encrypted,
+                description: description.into(),
+                tags: tags.to_vec(),
+                created_at: entry.created_at,
+                updated_at: now_iso(),
+            },
+        );
+        Ok(())
+    }
+
     pub fn get(&self, alias: &str) -> Result<String, VaultError> {
         let entry = self
             .data
@@ -839,6 +878,123 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.err().expect("expected Err").to_string();
         assert!(err_msg.contains("bad salt"), "got: {err_msg}");
+    }
+
+    #[test]
+    fn edit_updates_key_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("v.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store
+            .set("db", "OLD_KEY", "secret", "original desc", &["tag1".into()])
+            .unwrap();
+        store.edit("db", Some("NEW_KEY"), None, None, None).unwrap();
+        store.save().unwrap();
+        let store = VaultStore::load(&ps, "pw").unwrap();
+        let info = store.list(None).unwrap();
+        assert_eq!(info[0].key, "NEW_KEY");
+        assert_eq!(info[0].description, "original desc");
+        assert_eq!(info[0].tags, vec!["tag1".to_string()]);
+        assert_eq!(store.get("db").unwrap(), "secret");
+    }
+
+    #[test]
+    fn edit_updates_value_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("v.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.set("db", "DB_URL", "old-val", "desc", &[]).unwrap();
+        store
+            .edit("db", None, Some("new-val"), None, None)
+            .unwrap();
+        store.save().unwrap();
+        let store = VaultStore::load(&ps, "pw").unwrap();
+        assert_eq!(store.get("db").unwrap(), "new-val");
+        let info = store.list(None).unwrap();
+        assert_eq!(info[0].key, "DB_URL");
+        assert_eq!(info[0].description, "desc");
+    }
+
+    #[test]
+    fn edit_updates_description_and_tags() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("v.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.set("s1", "K", "v", "old desc", &[]).unwrap();
+        store
+            .edit(
+                "s1",
+                None,
+                None,
+                Some("new desc"),
+                Some(&["prod".into(), "db".into()]),
+            )
+            .unwrap();
+        store.save().unwrap();
+        let store = VaultStore::load(&ps, "pw").unwrap();
+        let info = store.list(None).unwrap();
+        assert_eq!(info[0].description, "new desc");
+        assert_eq!(info[0].tags, vec!["prod".to_string(), "db".to_string()]);
+        assert_eq!(store.get("s1").unwrap(), "v");
+    }
+
+    #[test]
+    fn edit_nonexistent_alias_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("v.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        let result = store.edit("missing", Some("K"), None, None, None);
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap().to_string();
+        assert!(err_msg.contains("alias not found"), "got: {err_msg}");
+    }
+
+    #[test]
+    fn edit_preserves_created_at() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("v.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.set("s1", "K", "v", "", &[]).unwrap();
+        store.save().unwrap();
+        let store_r = VaultStore::load(&ps, "pw").unwrap();
+        let before = store_r.list(None).unwrap();
+        let created_before = before[0].updated_at.clone();
+        drop(store_r);
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let mut store = VaultStore::load(&ps, "pw").unwrap();
+        store
+            .edit("s1", None, Some("new-val"), None, None)
+            .unwrap();
+        store.save().unwrap();
+        let store = VaultStore::load(&ps, "pw").unwrap();
+        let after = store.list(None).unwrap();
+        assert_ne!(after[0].updated_at, created_before);
+    }
+
+    #[test]
+    fn edit_all_fields_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("v.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.set("s1", "K", "v", "d", &["old".into()]).unwrap();
+        store
+            .edit(
+                "s1",
+                Some("NEW_K"),
+                Some("new-v"),
+                Some("new-d"),
+                Some(&["new-tag".into()]),
+            )
+            .unwrap();
+        store.save().unwrap();
+        let store = VaultStore::load(&ps, "pw").unwrap();
+        let info = store.list(None).unwrap();
+        assert_eq!(info[0].key, "NEW_K");
+        assert_eq!(info[0].description, "new-d");
+        assert_eq!(info[0].tags, vec!["new-tag".to_string()]);
+        assert_eq!(store.get("s1").unwrap(), "new-v");
     }
 
     #[test]

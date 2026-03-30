@@ -38,6 +38,7 @@ enva vault self-test
 |------------|--------|-------------|-------------|
 | `init` | `enva vault init --vault <path>` | Create a new encrypted vault | Yes (set + confirm password) |
 | `set` | `enva vault set <alias> -k <KEY> -V <value> [-d desc] [-t tags]` | Add or update a secret | Yes (password) |
+| `edit` | `enva vault edit <alias> [--key K] [--value V] [--description D] [--tags T]` | Update individual fields of an existing secret | Yes (password) |
 | `get` | `enva vault get <alias>` | Decrypt and print secret value to stdout | Yes (password) |
 | `list` | `enva vault list [--app <name>]` | List secrets (optionally filtered by app) | Yes (password) |
 | `delete` | `enva vault delete <alias> [--yes]` | Delete a secret (`--yes` skips confirm) | Yes (password + confirm) |

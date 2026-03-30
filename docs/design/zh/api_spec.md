@@ -200,7 +200,38 @@ echo "long-secret-value" | secrets set my-secret --key MY_SECRET --value - --vau
 
 ---
 
-#### 1.4.3 `secrets get`
+#### 1.4.3 `secrets edit`
+
+**用途**：编辑已有密钥的单个字段，未指定的字段保持不变。适用于迁移场景——将 vault 迁移到新设备后仅更新连接地址等字段。
+
+**签名**：
+
+```
+secrets edit ALIAS [--key KEY] [--value VALUE] [--description DESC] [--tags TAGS]
+```
+
+| 参数/选项 | 类型 | 必填 | 默认值 | 说明 |
+|-----------|------|------|--------|------|
+| `ALIAS` | `str` (参数) | 是 | — | 要编辑的密钥别名 |
+| `--key` | `str` | 否 | 不变 | 新的环境变量名 |
+| `--value` | `str` | 否 | 不变 | 新的密钥值 |
+| `--description` | `str` | 否 | 不变 | 新的描述 |
+| `--tags` | `str` | 否 | 不变 | 逗号分隔的标签（替换已有） |
+
+**行为**：
+1. 至少需要提供一个可选标志，否则报错退出
+2. 读取并解密 vault，验证 HMAC
+3. 查找别名——未找到则退出码 `3`
+4. 对每个提供的标志更新对应字段；未指定的字段保持不变
+5. 如果提供了 `--value`，使用 AES-256-GCM 重新加密
+6. 更新 `updated_at` 时间戳；保留 `created_at`
+7. 重新计算 HMAC 并保存
+
+**stdout**（非安静模式）：`Updated <ALIAS> (key, value, ...)` 列出更改的字段
+
+---
+
+#### 1.4.4 `secrets get`
 
 **功能**: 按别名解密并输出 secret 的 value。
 

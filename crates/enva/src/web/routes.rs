@@ -118,6 +118,18 @@ struct SecretInput {
 }
 
 #[derive(Deserialize)]
+struct SecretPatchInput {
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
 struct AppSecretsInput {
     secrets: Vec<String>,
     #[serde(default)]
@@ -159,10 +171,10 @@ pub fn api_router(state: Arc<AppState>) -> Router {
         .route("/vault/init", post(init_vault))
         .route("/secrets", get(list_secrets))
         .route("/secrets/{alias}", get(get_secret))
-        .route("/secrets/{alias}", put(upsert_secret))
+        .route("/secrets/{alias}", put(upsert_secret).patch(edit_secret))
         .route("/secrets/{alias}", delete(delete_secret))
         .route("/apps", get(list_apps).post(create_app))
-        .route("/apps/{app}", put(update_app))
+        .route("/apps/{app}", put(update_app).delete(delete_app))
         .route("/apps/{app}/secrets", get(get_app_secrets))
         .route("/apps/{app}/secrets", put(update_app_secrets))
         .route("/apps/{app}/secrets/{alias}", delete(unassign_secret))
@@ -333,6 +345,29 @@ async fn update_app(
     Ok(Json(serde_json::json!({"app": app, "updated": true})))
 }
 
+async fn delete_app(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(app): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let _guard = state.vault_write_lock.lock().await;
+    let mut store = get_store(&state)?;
+    store.delete_app(&app).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse { error: e.to_string() }),
+        )
+    })?;
+    store.save().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e.to_string() }),
+        )
+    })?;
+    Ok(Json(serde_json::json!({"deleted": true, "app": app})))
+}
+
 async fn list_secrets(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -452,6 +487,57 @@ async fn upsert_secret(
     ))
 }
 
+async fn edit_secret(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(alias): Path<String>,
+    Json(body): Json<SecretPatchInput>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    if body.key.is_none() && body.value.is_none() && body.description.is_none() && body.tags.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Nothing to edit. Provide at least one of: key, value, description, tags.".into(),
+            }),
+        ));
+    }
+    let _guard = state.vault_write_lock.lock().await;
+    let mut store = get_store(&state)?;
+    store
+        .edit(
+            &alias,
+            body.key.as_deref(),
+            body.value.as_deref(),
+            body.description.as_deref(),
+            body.tags.as_deref(),
+        )
+        .map_err(|e| {
+            let status = if matches!(e, VaultError::AliasNotFound(_)) {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, Json(ErrorResponse { error: e.to_string() }))
+        })?;
+    store.save().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e.to_string() }),
+        )
+    })?;
+    let mut fields = Vec::new();
+    if body.key.is_some() { fields.push("key"); }
+    if body.value.is_some() { fields.push("value"); }
+    if body.description.is_some() { fields.push("description"); }
+    if body.tags.is_some() { fields.push("tags"); }
+    Ok(Json(serde_json::json!({
+        "alias": alias,
+        "updated_fields": fields,
+        "updated_at": chrono::Utc::now().to_rfc3339()
+    })))
+}
+
 async fn delete_secret(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -518,7 +604,7 @@ async fn get_app_secrets(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_auth(&state, &headers)?;
     let store = get_store(&state)?;
-    let resolved = store.get_app_secrets(&app).map_err(|e| {
+    let secrets_info = store.list(Some(&app)).map_err(|e| {
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -526,12 +612,13 @@ async fn get_app_secrets(
             }),
         )
     })?;
-    let secrets: Vec<serde_json::Value> = resolved
-        .keys()
-        .map(|key| {
+    let secrets: Vec<serde_json::Value> = secrets_info
+        .iter()
+        .map(|s| {
             serde_json::json!({
-                "alias": key,
-                "injected_as": key,
+                "alias": s.alias,
+                "key": s.key,
+                "injected_as": s.key,
             })
         })
         .collect();
@@ -1138,6 +1225,8 @@ mod tests {
         assert_eq!(json["app"], "myapp");
         let secrets = json["secrets"].as_array().unwrap();
         assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0]["alias"], "db-url");
+        assert_eq!(secrets[0]["key"], "DATABASE_URL");
     }
 
     #[tokio::test]
@@ -1209,6 +1298,160 @@ mod tests {
         let req = authed_request("GET", "/api/secrets", &token, None);
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn delete_app_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("del-app.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store.create_app("myapp", "test app", "").unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request("DELETE", "/api/apps/myapp", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["deleted"], true);
+
+        let req = authed_request("GET", "/api/apps", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["apps"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_app_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("del-app-nf.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let (router, state) = build_app(&vps);
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let req = authed_request("DELETE", "/api/apps/ghost", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn update_app_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("upd-app.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store.create_app("myapp", "old desc", "/old/path").unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request("PUT", "/api/apps/myapp", &token,
+            Some(r#"{"description":"new desc","app_path":"/new/path"}"#));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = authed_request("GET", "/api/apps", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let apps = json["apps"].as_array().unwrap();
+        assert_eq!(apps[0]["description"], "new desc");
+        assert_eq!(apps[0]["app_path"], "/new/path");
+    }
+
+    #[tokio::test]
+    async fn edit_secret_key_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("edit-key.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store.set("my-sec", "OLD_KEY", "the-value", "desc", &["tag1".into()]).unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request("PATCH", "/api/secrets/my-sec", &token, Some(r#"{"key":"NEW_KEY"}"#));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["alias"], "my-sec");
+        let fields = json["updated_fields"].as_array().unwrap();
+        assert!(fields.iter().any(|f| f == "key"));
+
+        let req = authed_request("GET", "/api/secrets/my-sec?reveal=true", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["key"], "NEW_KEY");
+        assert_eq!(json["value"], "the-value");
+        assert_eq!(json["description"], "desc");
+    }
+
+    #[tokio::test]
+    async fn edit_secret_value_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("edit-val.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store.set("my-sec", "MY_KEY", "old-val", "", &[]).unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request("PATCH", "/api/secrets/my-sec", &token, Some(r#"{"value":"new-val"}"#));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = authed_request("GET", "/api/secrets/my-sec?reveal=true", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["key"], "MY_KEY");
+        assert_eq!(json["value"], "new-val");
+    }
+
+    #[tokio::test]
+    async fn edit_secret_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("edit-nf.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let (router, state) = build_app(&vps);
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let req = authed_request("PATCH", "/api/secrets/ghost", &token, Some(r#"{"key":"X"}"#));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn edit_secret_empty_body_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("edit-empty.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store.set("s1", "K", "v", "", &[]).unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request("PATCH", "/api/secrets/s1", &token, Some(r#"{}"#));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

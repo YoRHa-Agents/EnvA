@@ -32,6 +32,16 @@ enva vault set prod-db \
   --value "postgres://user:pass@db.example.com:5432/mydb"
 ```
 
+### Edit a secret / 编辑密钥
+
+```bash
+enva vault edit prod-db --value "postgres://user:pass@new-host:5432/mydb"
+```
+
+Only the specified fields are updated; unspecified fields remain unchanged.
+
+仅更新指定的字段；未指定的字段保持不变。
+
 ### Assign to an app / 分配到应用
 
 ```bash

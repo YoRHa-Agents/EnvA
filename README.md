@@ -121,6 +121,7 @@ All vault operations live under `enva vault`:
 ```bash
 enva vault init --vault ./project.vault.json
 enva vault set <alias> -k <KEY> -V <value> [-d <desc>] [-t <tags>]
+enva vault edit <alias> [--key <KEY>] [--value <val>] [--description <d>] [--tags <t>]
 enva vault get <alias>
 enva vault list [--app <name>]
 enva vault delete <alias> [--yes]
