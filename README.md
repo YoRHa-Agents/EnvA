@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.1.0-6366f1" alt="Changelog"></a>
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.1"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.1.1-6366f1" alt="Changelog"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="MIT license"></a>
 </p>
 
