@@ -105,4 +105,9 @@ mod tests {
     fn assets_contains_index_html() {
         assert!(Assets::get("index.html").is_some());
     }
+
+    #[test]
+    fn assets_contains_icon_svg() {
+        assert!(Assets::get("icon.svg").is_some());
+    }
 }
