@@ -1,9 +1,74 @@
-# Enva
+<p align="center">
+  <img src="docs/assets/branding/logo.svg" alt="Enva logo" width="320">
+</p>
 
-Encrypted environment variable manager with per-app injection and a built-in web UI.
+<h1 align="center">Enva</h1>
 
-Enva stores secrets in a local AES-256-GCM encrypted vault (Argon2id KDF, HMAC-SHA256 integrity)
-and injects them as environment variables when launching applications.
+<p align="center">
+  Encrypted environment variable manager with per-app injection and a built-in web UI.
+</p>
+
+<p align="center">
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.1.0-6366f1" alt="Changelog"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <a href="#spotlight">Spotlight</a>
+  ·
+  <a href="#demo-snapshots">Demo Snapshots</a>
+  ·
+  <a href="#installation">Installation</a>
+  ·
+  <a href="#quick-start">Quick Start</a>
+  ·
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases">Releases</a>
+</p>
+
+Enva stores secrets in a local AES-256-GCM encrypted vault, derives keys with Argon2id,
+verifies integrity with HMAC-SHA256, and injects resolved values into the exact app
+process that needs them. It is designed for teams that want a local-first workflow,
+strong crypto defaults, a fast CLI, and a clean web UI instead of passing `.env` files
+around by hand.
+
+## Spotlight
+
+- Local-first encrypted vault with AES-256-GCM at rest, Argon2id key derivation, and
+  HMAC-SHA256 integrity checks.
+- App-aware secret injection so each application receives only the aliases assigned to it.
+- Built-in web UI for browsing, editing, assigning, importing, and exporting secrets.
+- Cross-platform release binaries plus `build.sh` for parallel multi-target packaging
+  under `release/`.
+
+## Demo Snapshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/login-dark.png" alt="Enva login screen in dark theme" width="100%">
+      <br>
+      <sub>Unlock or initialize the local vault from a focused, single-screen login flow.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/secrets-overview-dark.png" alt="Enva secrets overview in dark theme" width="100%">
+      <br>
+      <sub>Browse the shared secrets pool, app assignments, tags, and usage state at a glance.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/secret-editor-dark.png" alt="Enva secret editor modal in dark theme" width="100%">
+      <br>
+      <sub>Edit keys, values, tags, and app bindings without leaving the dashboard.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/secrets-overview-light.png" alt="Enva secrets overview in light theme" width="100%">
+      <br>
+      <sub>Built-in light mode keeps the same structure for teams that prefer a brighter workspace.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Supported Platforms
 
@@ -37,14 +102,13 @@ cargo build --release
 sudo cp target/release/enva /usr/local/bin/
 ```
 
-### Cross-compilation
+### Option C: Build Release Packages
 
-To build the macOS aarch64 binary from a Linux host:
+Generate one or more release artifacts under `release/`:
 
 ```bash
-cargo install cargo-zigbuild
-rustup target add aarch64-apple-darwin
-cargo zigbuild --release --target aarch64-apple-darwin
+./build.sh linux-x86_64
+./build.sh all
 ```
 
 ### Verify Installation
@@ -98,7 +162,7 @@ Dry-run (list what would be injected without running anything):
 enva backend
 ```
 
-For CI/scripting, pipe the password via stdin:
+For CI and scripting, pipe the password via stdin:
 
 ```bash
 echo "$VAULT_PASSWORD" | enva --password-stdin backend -- ./start-server
@@ -161,22 +225,22 @@ control (contains no secret values). See
 | Crate | Description |
 |-------|-------------|
 | `enva-core` | Core library: AES-256-GCM, HKDF, Argon2id KDF, HMAC-SHA256, vault crypto, secret types, resolution |
-| `enva` | CLI binary (clap) + embedded Axum web UI |
+| `enva` | CLI binary (clap) plus embedded Axum web UI |
 
 ## Development
 
 ```bash
-cargo test --workspace           # run tests
-cargo bench                      # run benchmarks
-cargo fmt --all -- --check       # check formatting
-cargo clippy --workspace -- -D warnings  # lint
+cargo test --workspace
+cargo bench
+cargo fmt --all -- --check
+cargo clippy --workspace -- -D warnings
 ```
 
 ## Documentation
 
 Design docs, API specs, vault format, and deployment guides are in [`docs/`](docs/).
 
-For AI agents: see [`docs/agent-index.md`](docs/agent-index.md) for a structured
+For AI agents, see [`docs/agent-index.md`](docs/agent-index.md) for a structured
 command reference and workflow examples optimized for LLM consumption.
 
 ## License
