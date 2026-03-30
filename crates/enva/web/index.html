@@ -152,6 +152,17 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
   color:var(--text-muted); min-width:28px; text-align:center;
 }
 .app-item.active .count { background:rgba(99,102,241,0.2); color:var(--accent); }
+.app-item .app-actions {
+  display:none; gap:2px; margin-left:auto; flex-shrink:0;
+}
+.app-item:hover .app-actions { display:flex; }
+.app-item:hover .count { display:none; }
+.app-item .app-actions button {
+  background:none; border:none; color:var(--text-muted); cursor:pointer;
+  padding:3px; display:flex; border-radius:4px; transition:all var(--transition);
+}
+.app-item .app-actions .app-edit-btn:hover { color:var(--accent); background:var(--accent-bg); }
+.app-item .app-actions .app-del-btn:hover { color:var(--danger); background:var(--danger-bg); }
 .sidebar-divider { height:1px; background:var(--border); margin:6px 12px; }
 .sidebar-footer { padding:12px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
 .sidebar-footer button {
@@ -756,7 +767,7 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('addAppModal')" data-i18n="cancel">Cancel</button>
-      <button class="btn btn-primary" onclick="doAddApp()" data-i18n="createApp">Create App</button>
+      <button class="btn btn-primary" id="appModalSave" onclick="doSaveApp()">Create App</button>
     </div>
   </div>
 </div>
@@ -899,6 +910,7 @@ const APPS = {};
 let currentView = 'all';
 let revealedValues = new Set();
 let editingAlias = null;
+let editingOriginal = null;
 let importData = [];
 let confirmCallback = null;
 let authToken = null;
@@ -1137,7 +1149,15 @@ function renderSidebar() {
         </span>
         ${pathHint}
       </span>
-      <span class="count">${app.secrets.length}</span>`;
+      <span class="count">${app.secrets.length}</span>
+      <span class="app-actions">
+        <button class="app-edit-btn" onclick="event.stopPropagation();openEditAppModal('${esc(name)}')" title="Edit app">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="app-del-btn" onclick="event.stopPropagation();doDeleteApp('${esc(name)}')" title="Delete app">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </span>`;
     list.appendChild(div);
   }
 }
@@ -1326,12 +1346,14 @@ function parseQuickPaste() {
 /* ─── Secret Modal (Add / Edit) ───────────────────────── */
 function openSecretModal() {
   editingAlias = null;
+  editingOriginal = null;
   document.getElementById('secretModalTitle').textContent = 'Add Secret';
   document.getElementById('secretModalSave').textContent = 'Add Secret';
   document.getElementById('secretAlias').value = '';
   document.getElementById('secretAlias').disabled = false;
   document.getElementById('secretKey').value = '';
   document.getElementById('secretValue').value = '';
+  document.getElementById('secretValue').placeholder = 'Secret value...';
   document.getElementById('secretDesc').value = '';
   document.getElementById('secretTags').value = '';
   document.getElementById('quickPasteInput').value = '';
@@ -1345,6 +1367,7 @@ function openSecretModal() {
 function openEditSecret(alias) {
   editingAlias = alias;
   const s = SECRETS[alias];
+  editingOriginal = { key: s.key, value: '', description: s.description, tags: s.tags.join(', ') };
   document.getElementById('secretModalTitle').textContent = 'Edit Secret';
   document.getElementById('secretModalSave').textContent = 'Save Changes';
   document.getElementById('quickPasteGroup').style.display = 'none';
@@ -1352,6 +1375,7 @@ function openEditSecret(alias) {
   document.getElementById('secretAlias').disabled = true;
   document.getElementById('secretKey').value = s.key;
   document.getElementById('secretValue').value = '';
+  document.getElementById('secretValue').placeholder = '(leave empty to keep current value)';
   document.getElementById('secretDesc').value = s.description;
   document.getElementById('secretTags').value = s.tags.join(', ');
   document.getElementById('aliasError').classList.remove('show');
@@ -1362,6 +1386,7 @@ function openEditSecret(alias) {
     .then(data => {
       if (data.value !== undefined) {
         document.getElementById('secretValue').value = data.value;
+        editingOriginal.value = data.value;
       }
     })
     .catch(err => toast(err.message, 'error'));
@@ -1394,11 +1419,17 @@ function saveSecret() {
   const desc = document.getElementById('secretDesc').value.trim();
   const tags = document.getElementById('secretTags').value.split(',').map(t => t.trim()).filter(Boolean);
 
-  if (!alias || !key || !value) {
+  if (!alias || !key) {
     if (!alias) {
       document.getElementById('aliasError').textContent = 'Alias is required.';
       document.getElementById('aliasError').classList.add('show');
     }
+    return;
+  }
+
+  if (!editingAlias && !value) {
+    document.getElementById('aliasError').textContent = 'Value is required for new secrets.';
+    document.getElementById('aliasError').classList.add('show');
     return;
   }
 
@@ -1412,10 +1443,32 @@ function saveSecret() {
   const selectedApps = new Set();
   checkboxes.forEach(cb => { if (cb.checked) selectedApps.add(cb.value); });
 
-  apiFetch(`/secrets/${encodeURIComponent(alias)}`, {
-    method: 'PUT',
-    body: JSON.stringify({ key, value, description: desc, tags })
-  })
+  let savePromise;
+  if (editingAlias && editingOriginal) {
+    const patch = {};
+    if (key !== editingOriginal.key) { patch.key = key; }
+    if (value && value !== editingOriginal.value) { patch.value = value; }
+    if (desc !== editingOriginal.description) { patch.description = desc; }
+    const origTags = editingOriginal.tags;
+    const newTags = tags.join(', ');
+    if (newTags !== origTags) { patch.tags = tags; }
+
+    if (Object.keys(patch).length === 0) {
+      savePromise = Promise.resolve();
+    } else {
+      savePromise = apiFetch(`/secrets/${encodeURIComponent(alias)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch)
+      });
+    }
+  } else {
+    savePromise = apiFetch(`/secrets/${encodeURIComponent(alias)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ key, value, description: desc, tags })
+    });
+  }
+
+  savePromise
     .then(() => {
       const assignOps = [];
       for (const [appName, app] of Object.entries(APPS)) {
@@ -1434,6 +1487,7 @@ function saveSecret() {
     })
     .then(() => {
       closeModal('secretModal');
+      editingOriginal = null;
       loadSecretsFromAPI();
       loadAppsFromAPI();
       toast(editingAlias ? `Secret "${alias}" updated.` : `Secret "${alias}" added.`);
@@ -1846,14 +1900,43 @@ function copyExport() {
   });
 }
 
-/* ─── Add App ─────────────────────────────────────────── */
+/* ─── Add / Edit / Delete App ─────────────────────────── */
+let editingAppName = null;
+
 function openAddAppModal() {
+  editingAppName = null;
+  document.getElementById('addAppModal').querySelector('.modal-header h3').textContent = 'Add Application';
+  document.getElementById('appModalSave').textContent = 'Create App';
   document.getElementById('newAppName').value = '';
+  document.getElementById('newAppName').disabled = false;
   document.getElementById('newAppPath').value = '';
   document.getElementById('newAppDesc').value = '';
   document.getElementById('appNameError').classList.remove('show');
   openModal('addAppModal');
   document.getElementById('newAppName').focus();
+}
+
+function openEditAppModal(name) {
+  const app = APPS[name];
+  if (!app) return;
+  editingAppName = name;
+  document.getElementById('addAppModal').querySelector('.modal-header h3').textContent = 'Edit Application';
+  document.getElementById('appModalSave').textContent = 'Save Changes';
+  document.getElementById('newAppName').value = name;
+  document.getElementById('newAppName').disabled = true;
+  document.getElementById('newAppPath').value = app.app_path || '';
+  document.getElementById('newAppDesc').value = app.description || '';
+  document.getElementById('appNameError').classList.remove('show');
+  openModal('addAppModal');
+  document.getElementById('newAppPath').focus();
+}
+
+function doSaveApp() {
+  if (editingAppName) {
+    doEditApp();
+  } else {
+    doAddApp();
+  }
 }
 
 function doAddApp() {
@@ -1878,6 +1961,43 @@ function doAddApp() {
       document.getElementById('appNameError').textContent = err.message;
       document.getElementById('appNameError').classList.add('show');
     });
+}
+
+function doEditApp() {
+  const name = editingAppName;
+  const appPath = document.getElementById('newAppPath').value.trim();
+  const desc = document.getElementById('newAppDesc').value.trim();
+  apiFetch(`/apps/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ description: desc, app_path: appPath })
+  })
+    .then(() => {
+      closeModal('addAppModal');
+      editingAppName = null;
+      loadAppsFromAPI();
+      toast(`App "${name}" updated.`);
+    })
+    .catch(err => {
+      document.getElementById('appNameError').textContent = err.message;
+      document.getElementById('appNameError').classList.add('show');
+    });
+}
+
+function doDeleteApp(name) {
+  const app = APPS[name];
+  const secretCount = app ? app.secrets.length : 0;
+  const msg = secretCount > 0
+    ? `Delete app "${name}"? It has ${secretCount} assigned secret(s). Secrets themselves are NOT deleted.`
+    : `Delete app "${name}"?`;
+  showConfirm('Delete Application', msg, () => {
+    apiFetch(`/apps/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      .then(() => {
+        if (currentView === name) { switchView('all'); }
+        loadAppsFromAPI();
+        toast(`App "${name}" deleted.`);
+      })
+      .catch(err => toast(err.message, 'error'));
+  });
 }
 
 /* ─── Modal Helpers ───────────────────────────────────── */
@@ -1910,7 +2030,7 @@ document.addEventListener('keydown', e => {
     const addAppModal = document.getElementById('addAppModal');
     if (addAppModal.classList.contains('show')) {
       e.preventDefault();
-      doAddApp();
+      doSaveApp();
     }
   }
 });

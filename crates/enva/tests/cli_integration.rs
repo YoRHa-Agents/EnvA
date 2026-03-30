@@ -215,6 +215,95 @@ fn vault_export_json_format() {
 }
 
 #[test]
+fn vault_edit_updates_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    vault_set(vps, "testpass", "edit-me", "OLD_KEY", "the-value");
+
+    enva_cmd()
+        .args(["vault", "edit", "edit-me", "--key", "NEW_KEY"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated"))
+        .stdout(predicate::str::contains("key"));
+
+    enva_cmd()
+        .args(["vault", "list"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("NEW_KEY"));
+
+    enva_cmd()
+        .args(["vault", "get", "edit-me"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("the-value"));
+}
+
+#[test]
+fn vault_edit_updates_value() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    vault_set(vps, "testpass", "val-edit", "MY_KEY", "old-secret");
+
+    enva_cmd()
+        .args(["vault", "edit", "val-edit", "--value", "new-secret"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success();
+
+    enva_cmd()
+        .args(["vault", "get", "val-edit"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("new-secret"));
+}
+
+#[test]
+fn vault_edit_nonexistent_alias_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    enva_cmd()
+        .args(["vault", "edit", "no-such", "--key", "K"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn vault_edit_no_flags_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    vault_set(vps, "testpass", "s1", "K", "v");
+
+    enva_cmd()
+        .args(["vault", "edit", "s1"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Nothing to edit"));
+}
+
+#[test]
 fn vault_import_env_file() {
     let tmp = tempfile::tempdir().unwrap();
     let vp = create_test_vault(tmp.path(), "testpass");

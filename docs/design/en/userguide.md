@@ -257,6 +257,16 @@ Add or update a secret in the vault pool.
 enva set <ALIAS> --key <ENV_VAR> --value <SECRET_VALUE> [OPTIONS]
 ```
 
+### `enva edit`
+
+Edit individual fields of an existing secret without replacing all fields. Useful for migration — update a single connection string or key after moving to a new device.
+
+```bash
+enva edit <ALIAS> [--key <NEW_KEY>] [--value <NEW_VALUE>] [--description <DESC>] [--tags <TAGS>]
+```
+
+At least one flag is required. Unspecified fields remain unchanged.
+
 ### `enva get`
 
 Decrypt and print a single secret's value.

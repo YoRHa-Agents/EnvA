@@ -97,6 +97,23 @@ enum VaultCommands {
         #[arg(short, long, default_value = "")]
         tags: String,
     },
+    /// Edit an existing secret (update individual fields without replacing all)
+    Edit {
+        /// Secret alias to edit
+        alias: String,
+        /// New environment variable name
+        #[arg(short, long)]
+        key: Option<String>,
+        /// New secret value
+        #[arg(short = 'V', long)]
+        value: Option<String>,
+        /// New description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// New comma-separated tags (replaces existing)
+        #[arg(short, long)]
+        tags: Option<String>,
+    },
     /// Decrypt and print a secret
     Get {
         /// Secret alias
@@ -363,6 +380,45 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             store.save()?;
             if !cli.quiet {
                 println!("Secret \x1b[36m{alias}\x1b[0m set (key=\x1b[33m{key}\x1b[0m)");
+            }
+        }
+        VaultCommands::Edit {
+            alias,
+            key,
+            value,
+            description,
+            tags,
+        } => {
+            if key.is_none() && value.is_none() && description.is_none() && tags.is_none() {
+                return Err("Nothing to edit. Provide at least one of --key, --value, --description, or --tags.".into());
+            }
+            let vp = resolve_vault_path(cli);
+            let pw = get_password(cli)?;
+            let mut store = vault::VaultStore::load(&vp, &pw)?;
+            let tag_list: Option<Vec<String>> = tags.as_ref().map(|t| {
+                t.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            });
+            store.edit(
+                alias,
+                key.as_deref(),
+                value.as_deref(),
+                description.as_deref(),
+                tag_list.as_deref(),
+            )?;
+            store.save()?;
+            if !cli.quiet {
+                let mut fields = Vec::new();
+                if key.is_some() { fields.push("key"); }
+                if value.is_some() { fields.push("value"); }
+                if description.is_some() { fields.push("description"); }
+                if tag_list.is_some() { fields.push("tags"); }
+                println!(
+                    "Updated \x1b[36m{alias}\x1b[0m ({})",
+                    fields.join(", ")
+                );
             }
         }
         VaultCommands::Get { alias } => {
