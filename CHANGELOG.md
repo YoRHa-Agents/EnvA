@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-03-30
+
 ### Added
 
 - **Branding**: Added SVG logo/icon assets for documentation and the embedded web UI favicon.
@@ -32,5 +34,6 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.1
 [0.1.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.0
