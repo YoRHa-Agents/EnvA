@@ -634,7 +634,7 @@ secrets self-test
 ```
 Secrets Manager Self-Test
 ─────────────────────────
-Enva:          0.1.2 (x86_64-linux)
+Enva:          0.2.0 (x86_64-linux)
 aes-gcm:       ✓ 0.10
 argon2:        ✓ 0.5
 clap:          ✓ 4.5
