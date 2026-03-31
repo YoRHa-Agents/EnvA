@@ -1,8 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 56" fill="none" aria-label="Enva">
-  <rect width="280" height="56" rx="10" fill="#0f1117"/>
-  <g transform="translate(8 8)">
-    <rect width="40" height="40" rx="9" fill="#6366f1" fill-opacity="0.2"/>
-    <path fill="#6366f1" transform="translate(6 6) scale(0.78)" d="M18 10a4 4 0 0 0-4 4v2h-1a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1v-2a4 4 0 0 0-4-4zm-2 4a2 2 0 1 1 4 0v2h-4v-2zm2 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 72" fill="none" aria-label="Enva">
+  <rect width="320" height="72" fill="#0a0a0a"/>
+  <!-- Diamond decorations -->
+  <rect x="8" y="32" width="8" height="8" transform="rotate(45 12 36)" fill="none" stroke="#c4a35a" stroke-width="1"/>
+  <!-- Lock/Vault icon -->
+  <g transform="translate(24 12)">
+    <rect x="4" y="20" width="40" height="28" rx="2" fill="none" stroke="#c4a35a" stroke-width="1.5"/>
+    <path d="M14 20V14a10 10 0 0 1 20 0v6" fill="none" stroke="#c4a35a" stroke-width="1.5"/>
+    <circle cx="24" cy="32" r="4" fill="none" stroke="#e8e6e3" stroke-width="1.2"/>
+    <line x1="24" y1="36" x2="24" y2="42" stroke="#e8e6e3" stroke-width="1.2"/>
+    <!-- Corner brackets -->
+    <path d="M2 18 L2 22 L6 22" fill="none" stroke="#c4a35a" stroke-width="0.8" opacity="0.6"/>
+    <path d="M46 18 L46 22 L42 22" fill="none" stroke="#c4a35a" stroke-width="0.8" opacity="0.6"/>
+    <path d="M2 50 L2 46 L6 46" fill="none" stroke="#c4a35a" stroke-width="0.8" opacity="0.6"/>
+    <path d="M46 50 L46 46 L42 46" fill="none" stroke="#c4a35a" stroke-width="0.8" opacity="0.6"/>
   </g>
-  <text x="60" y="37" fill="#e2e8f0" font-family="system-ui,Segoe UI,sans-serif" font-size="26" font-weight="600">Enva</text>
+  <!-- Wordmark -->
+  <text x="82" y="32" fill="#e8e6e3" font-family="'EB Garamond',Georgia,serif" font-size="32" font-weight="500" letter-spacing="3">Env</text>
+  <text x="152" y="32" fill="#c4a35a" font-family="'EB Garamond',Georgia,serif" font-size="32" font-weight="600" letter-spacing="3">A</text>
+  <!-- Subtitle -->
+  <text x="82" y="54" fill="#8b7355" font-family="'Jost',system-ui,sans-serif" font-size="10" font-weight="400" letter-spacing="4" text-transform="uppercase">YORHA ENV[A]RMAMENT UNIT</text>
+  <!-- Right diamond -->
+  <rect x="304" y="32" width="8" height="8" transform="rotate(45 308 36)" fill="none" stroke="#c4a35a" stroke-width="1"/>
+  <!-- Top/bottom accent lines -->
+  <line x1="0" y1="1" x2="320" y2="1" stroke="#c4a35a" stroke-width="0.5" opacity="0.4"/>
+  <line x1="0" y1="71" x2="320" y2="71" stroke="#c4a35a" stroke-width="0.5" opacity="0.4"/>
 </svg>

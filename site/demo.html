@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enva — Interactive Demo</title>
+<meta name="description" content="Try Enva's vault management workflow in your browser. No installation required.">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Jost:wght@300;400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0a;
+  --surface: #1a1a18;
+  --surface-alt: #2a2a26;
+  --border: #3a3a36;
+  --border-focus: #c4a35a;
+  --ivory: #e8e6e3;
+  --muted: #4a4a46;
+  --gold: #c4a35a;
+  --gold-light: #d4b46a;
+  --gold-dark: #8b7355;
+  --danger: #c45a5a;
+  --danger-bg: rgba(196,90,90,0.12);
+  --success: #5ac47a;
+  --success-bg: rgba(90,196,122,0.12);
+  --warning: #c4a35a;
+  --warning-bg: rgba(196,163,90,0.12);
+  --radius: 2px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.5);
+  --transition: 0.2s ease;
+  --font-display: 'EB Garamond', Georgia, serif;
+  --font-body: 'Jost', system-ui, sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--font-body); background:var(--bg); color:var(--ivory); min-height:100vh; }
+code, .mono { font-family:var(--font-mono); }
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* --- HUD Banner --- */
+.hud-banner {
+  position:fixed; top:0; left:0; right:0; z-index:500;
+  height:32px; display:flex; align-items:center; justify-content:center; gap:12px;
+  background:rgba(196,163,90,0.08); border-bottom:1px solid rgba(196,163,90,0.2);
+  font-family:var(--font-mono); font-size:11px; color:var(--gold); letter-spacing:3px;
+}
+.hud-banner .diamond { width:5px; height:5px; background:var(--gold); transform:rotate(45deg); }
+
+/* --- Back nav --- */
+.back-nav {
+  position:fixed; top:32px; left:0; right:0; z-index:400;
+  height:40px; display:flex; align-items:center; padding:0 16px;
+  background:rgba(10,10,10,0.95); border-bottom:1px solid var(--border);
+}
+.back-nav a {
+  font-family:var(--font-mono); font-size:12px; color:var(--muted); letter-spacing:2px;
+  text-decoration:none; transition:color 0.2s;
+}
+.back-nav a:hover { color:var(--gold); }
+.back-nav .sep { margin:0 12px; color:var(--border); }
+.back-nav .current { color:var(--gold-dark); }
+
+/* --- Login --- */
+.login-overlay {
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  background:radial-gradient(ellipse at 30% 20%, rgba(196,163,90,0.06) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 80%, rgba(139,115,85,0.04) 0%, transparent 50%),
+              var(--bg);
+  z-index:300; transition:opacity 0.5s, visibility 0.5s;
+}
+.login-overlay.hidden { opacity:0; visibility:hidden; pointer-events:none; }
+.login-card {
+  width:420px; padding:48px 40px; background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius);
+}
+.login-logo { display:flex; align-items:center; gap:12px; margin-bottom:32px; }
+.login-logo .icon {
+  width:36px; height:36px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--gold-dark); color:var(--gold); font-size:18px;
+}
+.login-logo h1 { font-family:var(--font-display); font-size:22px; font-weight:500; letter-spacing:2px; }
+.login-logo .gold { color:var(--gold); }
+.login-vault-path {
+  display:flex; align-items:center; gap:8px; padding:10px 14px;
+  background:var(--bg); border:1px solid var(--border);
+  margin-bottom:20px; font-size:13px; color:var(--muted);
+}
+.login-vault-path .mono { color:var(--ivory); font-size:12px; }
+.field-group { margin-bottom:20px; }
+.field-group label { display:block; font-size:12px; font-weight:500; color:var(--muted); margin-bottom:6px; letter-spacing:1px; text-transform:uppercase; }
+.password-wrap { position:relative; display:flex; align-items:center; }
+.password-wrap input {
+  width:100%; padding:12px 44px 12px 14px; background:var(--bg); border:1px solid var(--border);
+  color:var(--ivory); font-size:15px; font-family:var(--font-body);
+  outline:none; transition:border var(--transition);
+}
+.password-wrap input:focus { border-color:var(--border-focus); }
+.password-wrap .eye-btn {
+  position:absolute; right:10px; background:none; border:none; color:var(--muted);
+  cursor:pointer; padding:4px; display:flex; transition:color var(--transition);
+}
+.password-wrap .eye-btn:hover { color:var(--ivory); }
+.login-btn {
+  width:100%; padding:12px; background:var(--gold); color:var(--bg); border:none;
+  font-size:14px; font-weight:600; cursor:pointer; transition:background var(--transition);
+  font-family:var(--font-body); letter-spacing:2px; text-transform:uppercase;
+}
+.login-btn:hover { background:var(--gold-light); }
+.login-error {
+  margin-top:16px; padding:10px 14px; background:var(--danger-bg); border:1px solid rgba(196,90,90,0.2);
+  font-size:13px; color:var(--danger); display:none; align-items:center; gap:8px;
+}
+.login-error.show { display:flex; }
+.login-access {
+  display:none; text-align:center; padding:24px 0;
+  font-family:var(--font-mono); font-size:14px; color:var(--success); letter-spacing:3px;
+}
+
+/* --- App Shell --- */
+.app { display:none; height:100vh; padding-top:72px; }
+.app.active { display:grid; grid-template-columns:260px 1fr; grid-template-rows:48px 1fr; }
+
+/* --- Sidebar --- */
+.sidebar {
+  grid-row:1/-1; background:var(--surface); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.sidebar-header {
+  padding:14px 16px; display:flex; align-items:center; gap:10px;
+  border-bottom:1px solid var(--border);
+}
+.sidebar-header .logo-mark {
+  width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--gold-dark); color:var(--gold); font-size:12px;
+}
+.sidebar-header h2 { font-family:var(--font-display); font-size:15px; font-weight:500; letter-spacing:1px; }
+.sidebar-header .gold { color:var(--gold); }
+.sidebar-section {
+  padding:14px 12px 6px; font-family:var(--font-mono); font-size:10px; color:var(--muted);
+  letter-spacing:3px; text-transform:uppercase;
+}
+.app-list { flex:1; overflow-y:auto; padding:0 8px 8px; }
+.app-item {
+  display:flex; align-items:center; justify-content:space-between; padding:10px 12px;
+  cursor:pointer; transition:all var(--transition); margin-bottom:2px; border:1px solid transparent;
+}
+.app-item:hover { background:var(--surface-alt); }
+.app-item.active { border-color:var(--gold-dark); background:rgba(196,163,90,0.06); }
+.app-item .name { font-size:13px; font-weight:400; display:flex; align-items:center; gap:8px; }
+.app-item.active .name { color:var(--gold); }
+.app-item .count {
+  font-family:var(--font-mono); font-size:11px; padding:2px 8px; background:var(--bg);
+  border:1px solid var(--border); color:var(--muted); min-width:28px; text-align:center;
+}
+.app-item.active .count { border-color:var(--gold-dark); color:var(--gold); }
+.sidebar-footer { padding:10px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
+.sidebar-footer button {
+  width:100%; padding:8px; background:none; border:1px solid var(--border);
+  color:var(--muted); font-size:12px; cursor:pointer; font-family:var(--font-mono);
+  transition:all var(--transition); display:flex; align-items:center; justify-content:center; gap:6px;
+  letter-spacing:1px; text-transform:uppercase;
+}
+.sidebar-footer button:hover { border-color:var(--muted); color:var(--ivory); }
+.sidebar-footer .lock-btn:hover { border-color:var(--danger); color:var(--danger); }
+
+/* --- Topbar --- */
+.topbar {
+  display:flex; align-items:center; justify-content:space-between; padding:0 20px;
+  background:var(--surface); border-bottom:1px solid var(--border);
+}
+.topbar-left { display:flex; align-items:center; gap:16px; }
+.view-title { font-family:var(--font-display); font-size:14px; font-weight:500; letter-spacing:1px; white-space:nowrap; }
+.search-box {
+  display:flex; align-items:center; gap:8px; padding:6px 12px;
+  background:var(--bg); border:1px solid var(--border); width:240px; transition:border var(--transition);
+}
+.search-box:focus-within { border-color:var(--border-focus); }
+.search-box input { background:none; border:none; color:var(--ivory); font-size:12px; outline:none; width:100%; font-family:var(--font-body); }
+.search-box svg { color:var(--muted); flex-shrink:0; }
+.topbar-right { display:flex; align-items:center; gap:8px; }
+.btn {
+  padding:7px 14px; font-size:12px; font-weight:500; cursor:pointer;
+  border:1px solid var(--border); font-family:var(--font-mono); transition:all var(--transition);
+  display:flex; align-items:center; gap:6px; letter-spacing:1px; text-transform:uppercase;
+  background:none; color:var(--muted);
+}
+.btn:hover { border-color:var(--muted); color:var(--ivory); }
+.btn-primary { background:var(--gold); border-color:var(--gold); color:var(--bg); }
+.btn-primary:hover { background:var(--gold-light); border-color:var(--gold-light); }
+.btn-success { background:var(--success-bg); color:var(--success); border-color:rgba(90,196,122,0.3); }
+.btn-success:hover { background:rgba(90,196,122,0.2); }
+.btn-danger { background:var(--danger-bg); color:var(--danger); border-color:rgba(196,90,90,0.3); }
+.btn-danger:hover { background:rgba(196,90,90,0.2); }
+
+/* --- Main Content --- */
+.main { padding:16px; overflow-y:auto; background:var(--bg); display:flex; flex-direction:column; }
+.secrets-table { width:100%; border-collapse:separate; border-spacing:0; }
+.secrets-table th {
+  text-align:left; padding:8px 12px; font-family:var(--font-mono); font-size:10px; color:var(--muted);
+  text-transform:uppercase; letter-spacing:2px; border-bottom:1px solid var(--border);
+  position:sticky; top:0; background:var(--bg); z-index:1;
+}
+.secrets-table td { padding:10px 12px; border-bottom:1px solid rgba(58,58,54,0.5); font-size:13px; vertical-align:middle; }
+.secrets-table tr:hover td { background:rgba(26,26,24,0.8); }
+.alias-cell { font-weight:500; color:var(--gold); }
+.alias-cell .mono { font-size:12px; }
+.key-cell { color:var(--muted); }
+.key-cell .mono { font-size:12px; }
+.secret-value { display:flex; align-items:center; gap:8px; }
+.secret-value .masked { color:var(--muted); font-size:12px; letter-spacing:2px; }
+.secret-value .revealed { color:var(--success); font-size:12px; word-break:break-all; }
+.secret-value button {
+  background:none; border:none; color:var(--muted); cursor:pointer; padding:2px;
+  display:flex; transition:color var(--transition); flex-shrink:0;
+}
+.secret-value button:hover { color:var(--ivory); }
+.tag-badge {
+  display:inline-block; padding:1px 8px; font-family:var(--font-mono); font-size:10px;
+  letter-spacing:1px; margin-right:4px; margin-bottom:2px; border:1px solid;
+}
+.tag-production { border-color:rgba(90,196,122,0.3); color:var(--success); }
+.tag-staging { border-color:rgba(196,163,90,0.3); color:var(--gold); }
+.tag-database { border-color:rgba(90,163,196,0.3); color:#5a9ec4; }
+.tag-auth { border-color:rgba(196,90,163,0.3); color:#c45aa3; }
+.tag-cache { border-color:rgba(196,140,90,0.3); color:#c48c5a; }
+.tag-monitoring { border-color:rgba(140,90,196,0.3); color:#8c5ac4; }
+.tag-external { border-color:rgba(90,196,180,0.3); color:#5ac4b4; }
+.tag-default { border-color:var(--border); color:var(--muted); }
+.app-badge {
+  display:inline-block; padding:1px 8px; border:1px solid rgba(196,163,90,0.3);
+  color:var(--gold); font-family:var(--font-mono); font-size:10px;
+  letter-spacing:1px; margin-right:4px; margin-bottom:2px;
+}
+.unassigned-badge {
+  display:inline-flex; align-items:center; gap:4px; padding:1px 8px;
+  border:1px solid rgba(196,163,90,0.3); color:var(--gold-dark);
+  font-family:var(--font-mono); font-size:10px; letter-spacing:1px;
+}
+.override-cell .override-label { color:var(--gold); font-size:11px; }
+.override-cell .original-label { color:var(--muted); font-size:11px; }
+.timestamp { font-family:var(--font-mono); font-size:11px; color:var(--muted); white-space:nowrap; }
+.actions { display:flex; gap:4px; }
+.actions button {
+  padding:5px 10px; font-size:11px; cursor:pointer; border:1px solid var(--border);
+  font-family:var(--font-mono); transition:all var(--transition); background:none;
+  color:var(--muted); letter-spacing:1px;
+}
+.actions .edit-btn:hover { border-color:var(--gold-dark); color:var(--gold); }
+.actions .delete-btn:hover { border-color:var(--danger); color:var(--danger); }
+.actions .unassign-btn:hover { border-color:var(--gold-dark); color:var(--gold); }
+
+.empty-state {
+  display:none; flex-direction:column; align-items:center; justify-content:center;
+  padding:60px 20px; text-align:center; flex:1;
+}
+.empty-state.show { display:flex; }
+.empty-state h3 { font-family:var(--font-display); font-size:18px; font-weight:500; margin-bottom:8px; }
+.empty-state p { font-size:13px; color:var(--muted); margin-bottom:20px; }
+
+/* --- CLI Terminal --- */
+.cli-panel {
+  margin-top:auto; border-top:1px solid var(--border); padding:12px;
+  background:var(--surface); font-family:var(--font-mono); font-size:12px;
+}
+.cli-panel .cli-header {
+  display:flex; align-items:center; gap:8px; margin-bottom:8px;
+  color:var(--gold-dark); font-size:10px; letter-spacing:2px; text-transform:uppercase;
+}
+.cli-panel .cli-output {
+  background:var(--bg); border:1px solid var(--border); padding:10px;
+  max-height:120px; overflow-y:auto; line-height:1.6; color:var(--muted);
+}
+.cli-panel .cli-output .cmd { color:var(--gold); }
+.cli-panel .cli-output .out { color:var(--ivory); }
+
+/* --- Modals --- */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);
+  display:none; align-items:center; justify-content:center; z-index:600;
+}
+.modal-overlay.show { display:flex; }
+.modal {
+  width:520px; max-height:80vh; background:var(--surface); border:1px solid var(--border);
+  display:flex; flex-direction:column;
+}
+.modal-wide { width:600px; }
+.modal-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 20px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.modal-header h3 { font-family:var(--font-display); font-size:16px; font-weight:500; letter-spacing:1px; }
+.modal-close {
+  background:none; border:none; color:var(--muted); cursor:pointer; padding:4px;
+  display:flex; transition:color var(--transition);
+}
+.modal-close:hover { color:var(--ivory); }
+.modal-body { padding:20px; overflow-y:auto; flex:1; }
+.modal-body .field-group { margin-bottom:14px; }
+.modal-body .field-group:last-child { margin-bottom:0; }
+.modal-body input, .modal-body textarea, .modal-body select {
+  width:100%; padding:10px 14px; background:var(--bg); border:1px solid var(--border);
+  color:var(--ivory); font-size:13px; outline:none;
+  font-family:var(--font-body); transition:border var(--transition);
+}
+.modal-body input:disabled { opacity:0.5; cursor:not-allowed; }
+.modal-body textarea { font-family:var(--font-mono); min-height:70px; resize:vertical; font-size:12px; }
+.modal-body input:focus, .modal-body textarea:focus, .modal-body select:focus { border-color:var(--border-focus); }
+.modal-body select { cursor:pointer; }
+.modal-body select option { background:var(--surface); }
+.modal-footer {
+  display:flex; justify-content:flex-end; gap:8px;
+  padding:14px 20px; border-top:1px solid var(--border); flex-shrink:0;
+}
+.field-hint { font-family:var(--font-mono); font-size:10px; color:var(--muted); margin-top:4px; letter-spacing:1px; }
+.field-error { font-size:11px; color:var(--danger); margin-top:4px; display:none; }
+.field-error.show { display:block; }
+.checkbox-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; margin-top:8px; }
+.checkbox-item {
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  background:var(--bg); border:1px solid var(--border);
+  cursor:pointer; transition:all var(--transition); font-size:12px;
+}
+.checkbox-item:hover { border-color:var(--muted); }
+.checkbox-item.checked { border-color:var(--gold-dark); background:rgba(196,163,90,0.06); }
+.checkbox-item input[type="checkbox"] { width:auto; accent-color:var(--gold); cursor:pointer; }
+.assign-list { display:flex; flex-direction:column; gap:4px; }
+.assign-row {
+  display:grid; grid-template-columns:auto 1fr 1fr 1fr; gap:10px; align-items:center;
+  padding:8px 10px; background:var(--bg); border:1px solid var(--border); transition:all var(--transition);
+}
+.assign-row:hover { border-color:var(--muted); }
+.assign-row.selected { border-color:var(--gold-dark); background:rgba(196,163,90,0.06); }
+.assign-row input[type="checkbox"] { width:auto; accent-color:var(--gold); cursor:pointer; }
+.assign-row .alias-label { font-weight:500; font-size:12px; }
+.assign-row .key-label { color:var(--muted); font-size:11px; }
+.assign-row input[type="text"] { padding:5px 8px; font-size:11px; background:var(--surface); }
+.dropzone {
+  border:1px dashed var(--border); padding:32px; text-align:center;
+  cursor:pointer; transition:all var(--transition);
+}
+.dropzone:hover, .dropzone.dragover { border-color:var(--gold); background:rgba(196,163,90,0.04); }
+.dropzone p { font-size:13px; color:var(--muted); }
+.dropzone .hint { font-size:11px; color:var(--muted); margin-top:4px; opacity:0.6; }
+.import-preview { margin-top:14px; display:none; }
+.import-preview.show { display:block; }
+.import-preview table { width:100%; font-size:12px; border-collapse:collapse; }
+.import-preview th { text-align:left; padding:6px 8px; color:var(--muted); font-family:var(--font-mono); font-size:10px; letter-spacing:2px; border-bottom:1px solid var(--border); }
+.import-preview td { padding:6px 8px; border-bottom:1px solid rgba(58,58,54,0.5); }
+
+/* --- Toast --- */
+.toast-container { position:fixed; top:80px; right:16px; z-index:700; display:flex; flex-direction:column; gap:6px; }
+.toast {
+  padding:10px 16px; background:var(--surface); border:1px solid var(--border);
+  box-shadow:var(--shadow); font-size:12px; font-family:var(--font-mono);
+  display:flex; align-items:center; gap:8px; letter-spacing:1px;
+  animation: slideIn 0.3s ease-out, fadeOut 0.3s ease-in 2.7s forwards;
+}
+.toast-success { border-color:rgba(90,196,122,0.3); }
+.toast-success svg { color:var(--success); }
+.toast-error { border-color:rgba(196,90,90,0.3); }
+.toast-error svg { color:var(--danger); }
+@keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+@keyframes fadeOut { from { opacity:1; } to { opacity:0; } }
+
+/* --- Confirm --- */
+.confirm-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);
+  display:none; align-items:center; justify-content:center; z-index:650;
+}
+.confirm-overlay.show { display:flex; }
+.confirm-box {
+  width:380px; padding:24px; background:var(--surface); border:1px solid var(--border); text-align:center;
+}
+.confirm-box h3 { font-family:var(--font-display); font-size:16px; font-weight:500; margin-bottom:8px; }
+.confirm-box p { font-size:13px; color:var(--muted); margin-bottom:20px; }
+.confirm-box .confirm-actions { display:flex; gap:8px; justify-content:center; }
+
+/* --- Scanline overlay --- */
+.scanline-overlay {
+  pointer-events:none; position:fixed; inset:0; z-index:9999;
+  background-image:repeating-linear-gradient(0deg, rgba(232,230,227,0.015) 0px, rgba(232,230,227,0.015) 1px, transparent 1px, transparent 3px);
+}
+</style>
+</head>
+<body>
+
+<div class="scanline-overlay"></div>
+
+<div class="hud-banner">
+  <span class="diamond"></span>
+  SIMULATION MODE — NO REAL DATA
+  <span class="diamond"></span>
+</div>
+
+<div class="back-nav">
+  <a href="index.html">◇ ENVA</a>
+  <span class="sep">›</span>
+  <span class="current">INTERACTIVE DEMO</span>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Login -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="icon">◈</div>
+      <h1>Env<span class="gold">A</span></h1>
+    </div>
+    <div class="login-vault-path">
+      <span style="color:var(--gold-dark)">◇</span>
+      <span class="mono">~/.secrets/vault.json</span>
+    </div>
+    <div class="field-group">
+      <label>Vault Password</label>
+      <div class="password-wrap">
+        <input type="password" id="loginPassword" placeholder="Enter any text to unlock">
+        <button class="eye-btn" onclick="togglePw('loginPassword')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+    <button class="login-btn" onclick="doLogin()">UNLOCK VAULT</button>
+    <div class="login-error" id="loginError">
+      <span>Access denied. Enter any text to proceed.</span>
+    </div>
+    <div class="login-access" id="loginAccess">— SYSTEM ACCESS GRANTED —</div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div class="app" id="mainApp">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-mark">◈</div>
+      <h2>Env<span class="gold">A</span></h2>
+    </div>
+    <div class="sidebar-section">「 Secrets Pool 」</div>
+    <div style="padding:0 8px">
+      <div class="app-item active" data-view="all" onclick="switchView('all')">
+        <span class="name">◇ All Secrets</span>
+        <span class="count" id="countAll">0</span>
+      </div>
+    </div>
+    <div class="sidebar-section">「 Applications 」</div>
+    <div class="app-list" id="appList"></div>
+    <div class="sidebar-footer">
+      <button onclick="openAddAppModal()">+ ADD APP</button>
+      <button class="lock-btn" onclick="doLogout()">⊘ LOCK VAULT</button>
+    </div>
+  </div>
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="view-title" id="viewTitle">「 All Secrets 」</span>
+      <div class="search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="searchInput" placeholder="Search..." oninput="renderTable()">
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn" onclick="openImportModal()">IMPORT</button>
+      <button class="btn" onclick="doExport()">EXPORT</button>
+      <button class="btn btn-primary" id="btnAddSecret" onclick="openSecretModal()">+ SECRET</button>
+      <button class="btn btn-success" id="btnAssign" style="display:none" onclick="openAssignModal()">ASSIGN</button>
+    </div>
+  </div>
+
+  <div class="main" id="mainContent">
+    <table class="secrets-table" id="secretsTable">
+      <thead id="tableHead"></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <div class="empty-state" id="emptyState">
+      <h3 id="emptyTitle">No secrets yet</h3>
+      <p id="emptyText">Add your first secret to get started.</p>
+      <button class="btn btn-primary" onclick="openSecretModal()">+ ADD SECRET</button>
+    </div>
+    <div class="cli-panel" id="cliPanel">
+      <div class="cli-header">◇ CLI SIMULATION</div>
+      <div class="cli-output" id="cliOutput">
+        <div class="cmd">$ enva vault self-test</div>
+        <div class="out">Vault integrity check passed.</div>
+        <div class="cmd">$ enva --version</div>
+        <div class="out">enva 0.3.0</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals (same structure as original, NieR styled via CSS above) -->
+<div class="modal-overlay" id="secretModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="secretModalTitle">「 Add Secret 」</h3>
+      <button class="modal-close" onclick="closeModal('secretModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label>Alias</label>
+        <input type="text" id="secretAlias" placeholder="e.g. prod-db, jwt-secret" class="mono">
+        <div class="field-hint">LOWERCASE, NUMBERS, HYPHENS ONLY</div>
+        <div class="field-error" id="aliasError">Alias already exists or is invalid.</div>
+      </div>
+      <div class="field-group">
+        <label>Key (env var)</label>
+        <input type="text" id="secretKey" placeholder="e.g. DATABASE_URL" class="mono" style="text-transform:uppercase">
+      </div>
+      <div class="field-group">
+        <label>Value</label>
+        <textarea id="secretValue" placeholder="Secret value..."></textarea>
+      </div>
+      <div class="field-group">
+        <label>Description</label>
+        <input type="text" id="secretDesc" placeholder="Short description">
+      </div>
+      <div class="field-group">
+        <label>Tags</label>
+        <input type="text" id="secretTags" placeholder="Comma-separated: production, database">
+      </div>
+      <div class="field-group">
+        <label>Assign to Apps</label>
+        <div class="checkbox-grid" id="secretAppCheckboxes"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('secretModal')">CANCEL</button>
+      <button class="btn btn-primary" id="secretModalSave" onclick="saveSecret()">ADD SECRET</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="assignModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="assignModalTitle">「 Assign Secrets 」</h3>
+      <button class="modal-close" onclick="closeModal('assignModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="assign-list" id="assignList"></div>
+      <div id="assignEmpty" style="text-align:center;padding:24px;color:var(--muted);display:none">All secrets are already assigned.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('assignModal')">CANCEL</button>
+      <button class="btn btn-primary" onclick="doAssign()">ASSIGN SELECTED</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="importModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3>「 Import from .env 」</h3>
+      <button class="modal-close" onclick="closeModal('importModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+        <p>Drop .env file here or click to browse</p>
+        <div class="hint">Supports KEY=VALUE format</div>
+      </div>
+      <input type="file" id="fileInput" accept=".env,.txt" style="display:none" onchange="handleFileSelect(event)">
+      <div class="field-group" style="margin-top:14px">
+        <label>Target App (optional)</label>
+        <select id="importTargetApp"><option value="">— Pool only —</option></select>
+      </div>
+      <div class="import-preview" id="importPreview">
+        <table><thead><tr><th>Alias</th><th>Key</th><th>Value</th></tr></thead><tbody id="importPreviewBody"></tbody></table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('importModal')">CANCEL</button>
+      <button class="btn btn-primary" id="importBtn" onclick="doImport()" disabled>IMPORT</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="exportModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>「 Export Secrets 」</h3>
+      <button class="modal-close" onclick="closeModal('exportModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label>Scope</label>
+        <select id="exportScope"><option value="all">All Secrets</option></select>
+      </div>
+      <div class="field-group">
+        <label>Format</label>
+        <select id="exportFormat"><option value="env">.env</option><option value="json">JSON</option></select>
+      </div>
+      <div class="field-group">
+        <label>Preview</label>
+        <textarea id="exportPreview" readonly style="min-height:160px;background:var(--bg);cursor:default"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('exportModal')">CLOSE</button>
+      <button class="btn btn-primary" onclick="copyExport()">COPY</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="addAppModal">
+  <div class="modal" style="width:400px">
+    <div class="modal-header">
+      <h3>「 Add Application 」</h3>
+      <button class="modal-close" onclick="closeModal('addAppModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label>App Name</label>
+        <input type="text" id="newAppName" placeholder="e.g. backend, worker-2">
+        <div class="field-error" id="appNameError">App name already exists.</div>
+      </div>
+      <div class="field-group">
+        <label>Description</label>
+        <input type="text" id="newAppDesc" placeholder="Short description">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('addAppModal')">CANCEL</button>
+      <button class="btn btn-primary" onclick="doAddApp()">CREATE</button>
+    </div>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <h3 id="confirmTitle">Confirm</h3>
+    <p id="confirmText">Are you sure?</p>
+    <div class="confirm-actions">
+      <button class="btn" onclick="closeConfirm(false)">CANCEL</button>
+      <button class="btn btn-danger" id="confirmAction" onclick="closeConfirm(true)">DELETE</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY_SECRETS = 'enva-demo-secrets';
+const STORAGE_KEY_APPS = 'enva-demo-apps';
+
+const DEFAULT_SECRETS = {
+  'prod-db': { key:'DATABASE_URL', value:'postgres://admin:s3cret@db.yorha.net:5432/production', description:'Production database connection', tags:['production','database'], updated:'2026-03-30T10:00:00Z' },
+  'jwt-secret': { key:'JWT_SECRET', value:'YoRHa-2B-9S-A2-Encrypted-Token-v3', description:'JWT signing key', tags:['auth','production'], updated:'2026-03-29T14:30:00Z' },
+  'redis-url': { key:'REDIS_URL', value:'redis://cache.yorha.net:6379/0', description:'Redis cache connection', tags:['cache','production'], updated:'2026-03-28T09:15:00Z' },
+  'api-key': { key:'API_KEY', value:'sk-yorha-xxxxxxxxxxxxxxxxxxxx', description:'External API access key', tags:['external'], updated:'2026-03-27T16:00:00Z' },
+  'sentry-dsn': { key:'SENTRY_DSN', value:'https://abc123@sentry.yorha.net/42', description:'Error tracking endpoint', tags:['monitoring'], updated:'2026-03-26T11:45:00Z' },
+  'smtp-pass': { key:'SMTP_PASSWORD', value:'mailgun-yorha-bunker-key', description:'Email service credentials', tags:['external','production'], updated:'2026-03-25T08:20:00Z' },
+};
+
+const DEFAULT_APPS = {
+  'backend': { description:'Main API server', secrets:['prod-db','jwt-secret','redis-url','sentry-dsn'], overrides:{} },
+  'worker': { description:'Background job processor', secrets:['prod-db','redis-url','sentry-dsn'], overrides:{'prod-db':'WORKER_DB_URL'} },
+  'mailer': { description:'Email notification service', secrets:['smtp-pass','sentry-dsn'], overrides:{} },
+};
+
+let SECRETS = {};
+let APPS = {};
+let currentView = 'all';
+let revealedValues = new Set();
+let editingAlias = null;
+let importData = [];
+let confirmCallback = null;
+
+function loadState() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY_SECRETS);
+    const a = localStorage.getItem(STORAGE_KEY_APPS);
+    if (s && a) {
+      SECRETS = JSON.parse(s);
+      APPS = JSON.parse(a);
+    } else {
+      SECRETS = JSON.parse(JSON.stringify(DEFAULT_SECRETS));
+      APPS = JSON.parse(JSON.stringify(DEFAULT_APPS));
+      saveState();
+    }
+  } catch (e) {
+    SECRETS = JSON.parse(JSON.stringify(DEFAULT_SECRETS));
+    APPS = JSON.parse(JSON.stringify(DEFAULT_APPS));
+    saveState();
+  }
+}
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY_SECRETS, JSON.stringify(SECRETS));
+    localStorage.setItem(STORAGE_KEY_APPS, JSON.stringify(APPS));
+  } catch (e) { /* best-effort */ }
+}
+
+loadState();
+
+function toast(msg, type) {
+  type = type || 'success';
+  var c = document.getElementById('toastContainer');
+  var d = document.createElement('div');
+  d.className = 'toast toast-' + type;
+  var icon = type === 'success'
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+  d.innerHTML = icon + '<span>' + msg + '</span>';
+  c.appendChild(d);
+  setTimeout(function() { d.remove(); }, 3000);
+}
+
+function timeAgo(iso) {
+  var d = new Date(iso);
+  var now = new Date();
+  var diff = Math.floor((now - d) / 1000);
+  if (diff < 60) { return 'just now'; }
+  if (diff < 3600) { return Math.floor(diff / 60) + 'm ago'; }
+  if (diff < 86400) { return Math.floor(diff / 3600) + 'h ago'; }
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+function maskValue(v) { return '\u2022'.repeat(Math.min(v.length, 20)); }
+
+function getAppsForSecret(alias) {
+  return Object.entries(APPS).filter(function(e) { return e[1].secrets.indexOf(alias) !== -1; }).map(function(e) { return e[0]; });
+}
+
+function tagClass(tag) {
+  var map = { production:'tag-production', staging:'tag-staging', database:'tag-database',
+    auth:'tag-auth', cache:'tag-cache', monitoring:'tag-monitoring', external:'tag-external' };
+  return map[tag] || 'tag-default';
+}
+
+function togglePw(id) {
+  var inp = document.getElementById(id);
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function doLogin() {
+  var pw = document.getElementById('loginPassword').value.trim();
+  if (!pw) { document.getElementById('loginError').classList.add('show'); return; }
+  document.getElementById('loginError').classList.remove('show');
+  var access = document.getElementById('loginAccess');
+  access.style.display = 'block';
+  setTimeout(function() {
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('mainApp').classList.add('active');
+    access.style.display = 'none';
+    renderSidebar();
+    renderTable();
+    cliLog('enva vault unlock', 'Vault unlocked. ' + Object.keys(SECRETS).length + ' secrets loaded.');
+  }, 800);
+}
+
+function doLogout() {
+  document.getElementById('mainApp').classList.remove('active');
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('loginPassword').value = '';
+  revealedValues.clear();
+}
+
+document.getElementById('loginPassword').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { doLogin(); }
+});
+
+function cliLog(cmd, output) {
+  var el = document.getElementById('cliOutput');
+  el.innerHTML += '<div class="cmd">$ ' + esc(cmd) + '</div>';
+  if (output) { el.innerHTML += '<div class="out">' + esc(output) + '</div>'; }
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderSidebar() {
+  document.getElementById('countAll').textContent = Object.keys(SECRETS).length;
+  var list = document.getElementById('appList');
+  list.innerHTML = '';
+  for (var name in APPS) {
+    var app = APPS[name];
+    var div = document.createElement('div');
+    div.className = 'app-item' + (currentView === name ? ' active' : '');
+    div.dataset.view = name;
+    div.onclick = (function(n) { return function() { switchView(n); }; })(name);
+    div.innerHTML = '<span class="name">◇ ' + esc(name) + '</span><span class="count">' + app.secrets.length + '</span>';
+    list.appendChild(div);
+  }
+}
+
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.app-item').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  var isApp = view !== 'all';
+  document.getElementById('btnAssign').style.display = isApp ? 'flex' : 'none';
+  document.getElementById('viewTitle').textContent = isApp
+    ? '\u300C ' + view + ' \u300D'
+    : '\u300C All Secrets \u300D';
+  document.getElementById('searchInput').value = '';
+  revealedValues.clear();
+  renderTable();
+  if (isApp) { cliLog('enva ' + view, Object.keys(APPS[view] ? APPS[view].secrets : []).length + ' secrets assigned to ' + view); }
+}
+
+function renderTable() {
+  var thead = document.getElementById('tableHead');
+  var tbody = document.getElementById('tableBody');
+  var search = document.getElementById('searchInput').value.toLowerCase();
+  var isApp = currentView !== 'all';
+
+  thead.innerHTML = isApp
+    ? '<tr><th>Alias</th><th>Key</th><th>Injected As</th><th>Value</th><th>Tags</th><th>Updated</th><th>Actions</th></tr>'
+    : '<tr><th>Alias</th><th>Key</th><th>Value</th><th>Tags</th><th>Used By</th><th>Updated</th><th>Actions</th></tr>';
+
+  var aliases;
+  if (isApp) {
+    var app = APPS[currentView];
+    aliases = app ? app.secrets.filter(function(a) { return SECRETS[a]; }) : [];
+  } else {
+    aliases = Object.keys(SECRETS);
+  }
+
+  if (search) {
+    aliases = aliases.filter(function(alias) {
+      var s = SECRETS[alias];
+      return alias.indexOf(search) !== -1 || s.key.toLowerCase().indexOf(search) !== -1 ||
+        s.value.toLowerCase().indexOf(search) !== -1 || s.description.toLowerCase().indexOf(search) !== -1 ||
+        s.tags.some(function(t) { return t.indexOf(search) !== -1; });
+    });
+  }
+
+  tbody.innerHTML = '';
+  var empty = document.getElementById('emptyState');
+  var table = document.getElementById('secretsTable');
+
+  if (aliases.length === 0) {
+    table.style.display = 'none';
+    empty.classList.add('show');
+    if (search) {
+      document.getElementById('emptyTitle').textContent = 'No matches';
+      document.getElementById('emptyText').textContent = 'Try a different search term.';
+    } else if (isApp) {
+      document.getElementById('emptyTitle').textContent = 'No secrets assigned';
+      document.getElementById('emptyText').textContent = 'Assign secrets from the pool.';
+    } else {
+      document.getElementById('emptyTitle').textContent = 'No secrets yet';
+      document.getElementById('emptyText').textContent = 'Add your first secret.';
+    }
+    return;
+  }
+
+  table.style.display = '';
+  empty.classList.remove('show');
+
+  for (var i = 0; i < aliases.length; i++) {
+    var alias = aliases[i];
+    var s = SECRETS[alias];
+    var tr = document.createElement('tr');
+    var revealed = revealedValues.has(alias);
+
+    var injectedCell = '';
+    if (isApp) {
+      var appObj = APPS[currentView];
+      var override = appObj.overrides[alias];
+      injectedCell = override
+        ? '<td class="override-cell"><span class="mono override-label">' + esc(override) + '</span></td>'
+        : '<td class="override-cell"><span class="mono original-label">' + esc(s.key) + '</span></td>';
+    }
+
+    var usedByApps = getAppsForSecret(alias);
+    var usedByCell = '';
+    if (!isApp) {
+      usedByCell = usedByApps.length === 0
+        ? '<td><span class="unassigned-badge">unassigned</span></td>'
+        : '<td>' + usedByApps.map(function(a) { return '<span class="app-badge">' + esc(a) + '</span>'; }).join('') + '</td>';
+    }
+
+    var tagsHtml = s.tags.map(function(t) { return '<span class="tag-badge ' + tagClass(t) + '">' + esc(t) + '</span>'; }).join('');
+    var valueHtml = revealed
+      ? '<span class="mono revealed">' + esc(s.value) + '</span>'
+      : '<span class="mono masked">' + maskValue(s.value) + '</span>';
+    var eyeIcon = revealed
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+    var actionsHtml = isApp
+      ? '<button class="edit-btn" onclick="openEditSecret(\'' + esc(alias) + '\')">EDIT</button><button class="unassign-btn" onclick="unassignSecret(\'' + esc(alias) + '\')">UNASSIGN</button>'
+      : '<button class="edit-btn" onclick="openEditSecret(\'' + esc(alias) + '\')">EDIT</button><button class="delete-btn" onclick="deleteSecret(\'' + esc(alias) + '\')">DELETE</button>';
+
+    tr.innerHTML = '<td class="alias-cell"><span class="mono">' + esc(alias) + '</span></td>' +
+      '<td class="key-cell"><span class="mono">' + esc(s.key) + '</span></td>' +
+      injectedCell +
+      '<td><div class="secret-value">' + valueHtml + '<button onclick="toggleReveal(\'' + esc(alias) + '\')">' + eyeIcon + '</button></div></td>' +
+      '<td>' + tagsHtml + '</td>' +
+      usedByCell +
+      '<td class="timestamp" title="' + s.updated + '">' + timeAgo(s.updated) + '</td>' +
+      '<td><div class="actions">' + actionsHtml + '</div></td>';
+    tbody.appendChild(tr);
+  }
+}
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function toggleReveal(alias) {
+  if (revealedValues.has(alias)) { revealedValues.delete(alias); }
+  else { revealedValues.add(alias); }
+  renderTable();
+}
+
+function openSecretModal() {
+  editingAlias = null;
+  document.getElementById('secretModalTitle').textContent = '\u300C Add Secret \u300D';
+  document.getElementById('secretModalSave').textContent = 'ADD SECRET';
+  document.getElementById('secretAlias').value = '';
+  document.getElementById('secretAlias').disabled = false;
+  document.getElementById('secretKey').value = '';
+  document.getElementById('secretValue').value = '';
+  document.getElementById('secretDesc').value = '';
+  document.getElementById('secretTags').value = '';
+  document.getElementById('aliasError').classList.remove('show');
+  renderAppCheckboxes([]);
+  openModal('secretModal');
+  document.getElementById('secretAlias').focus();
+}
+
+function openEditSecret(alias) {
+  editingAlias = alias;
+  var s = SECRETS[alias];
+  document.getElementById('secretModalTitle').textContent = '\u300C Edit Secret \u300D';
+  document.getElementById('secretModalSave').textContent = 'SAVE';
+  document.getElementById('secretAlias').value = alias;
+  document.getElementById('secretAlias').disabled = true;
+  document.getElementById('secretKey').value = s.key;
+  document.getElementById('secretValue').value = s.value;
+  document.getElementById('secretDesc').value = s.description;
+  document.getElementById('secretTags').value = s.tags.join(', ');
+  document.getElementById('aliasError').classList.remove('show');
+  renderAppCheckboxes(getAppsForSecret(alias));
+  openModal('secretModal');
+  document.getElementById('secretKey').focus();
+}
+
+function renderAppCheckboxes(selected) {
+  var grid = document.getElementById('secretAppCheckboxes');
+  grid.innerHTML = '';
+  for (var name in APPS) {
+    var checked = selected.indexOf(name) !== -1;
+    var div = document.createElement('div');
+    div.className = 'checkbox-item' + (checked ? ' checked' : '');
+    div.innerHTML = '<input type="checkbox" value="' + esc(name) + '"' + (checked ? ' checked' : '') + '> ' + esc(name);
+    div.onclick = (function(d) { return function(e) {
+      if (e.target.tagName === 'INPUT') { return; }
+      var cb = d.querySelector('input');
+      cb.checked = !cb.checked;
+      d.classList.toggle('checked', cb.checked);
+    }; })(div);
+    div.querySelector('input').onchange = (function(d) { return function() { d.classList.toggle('checked', d.querySelector('input').checked); }; })(div);
+    grid.appendChild(div);
+  }
+}
+
+function saveSecret() {
+  var alias = document.getElementById('secretAlias').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  var key = document.getElementById('secretKey').value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+  var value = document.getElementById('secretValue').value;
+  var desc = document.getElementById('secretDesc').value.trim();
+  var tags = document.getElementById('secretTags').value.split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+
+  if (!alias || !key || !value) {
+    if (!alias) { document.getElementById('aliasError').textContent = 'Alias is required.'; document.getElementById('aliasError').classList.add('show'); }
+    return;
+  }
+  if (!editingAlias && SECRETS[alias]) {
+    document.getElementById('aliasError').textContent = 'Alias already exists.';
+    document.getElementById('aliasError').classList.add('show');
+    return;
+  }
+
+  SECRETS[alias] = { key:key, value:value, description:desc, tags:tags, updated:new Date().toISOString() };
+
+  var checkboxes = document.querySelectorAll('#secretAppCheckboxes input[type="checkbox"]');
+  var selectedApps = new Set();
+  checkboxes.forEach(function(cb) { if (cb.checked) { selectedApps.add(cb.value); } });
+
+  for (var appName in APPS) {
+    var app = APPS[appName];
+    var idx = app.secrets.indexOf(alias);
+    if (selectedApps.has(appName)) { if (idx === -1) { app.secrets.push(alias); } }
+    else { if (idx !== -1) { app.secrets.splice(idx, 1); delete app.overrides[alias]; } }
+  }
+
+  saveState();
+  closeModal('secretModal');
+  renderSidebar();
+  renderTable();
+  var action = editingAlias ? 'vault edit ' + alias : 'vault set ' + alias + ' -k ' + key;
+  cliLog('enva ' + action, 'Secret "' + alias + '" ' + (editingAlias ? 'updated' : 'stored') + '.');
+  toast(editingAlias ? 'Secret "' + alias + '" updated.' : 'Secret "' + alias + '" added.');
+}
+
+function deleteSecret(alias) {
+  showConfirm('Delete Secret', 'Delete "' + alias + '"? Removes from all apps.', function() {
+    delete SECRETS[alias];
+    for (var name in APPS) {
+      var app = APPS[name];
+      var idx = app.secrets.indexOf(alias);
+      if (idx !== -1) { app.secrets.splice(idx, 1); }
+      delete app.overrides[alias];
+    }
+    revealedValues.delete(alias);
+    saveState();
+    renderSidebar();
+    renderTable();
+    cliLog('enva vault delete ' + alias + ' --yes', 'Secret "' + alias + '" deleted.');
+    toast('Secret "' + alias + '" deleted.');
+  });
+}
+
+function unassignSecret(alias) {
+  var app = APPS[currentView];
+  if (!app) { return; }
+  var idx = app.secrets.indexOf(alias);
+  if (idx !== -1) { app.secrets.splice(idx, 1); }
+  delete app.overrides[alias];
+  saveState();
+  renderSidebar();
+  renderTable();
+  cliLog('enva vault unassign ' + alias + ' --app ' + currentView, '"' + alias + '" unassigned from ' + currentView + '.');
+  toast('"' + alias + '" unassigned from ' + currentView + '.');
+}
+
+function openAssignModal() {
+  var app = APPS[currentView];
+  if (!app) { return; }
+  document.getElementById('assignModalTitle').textContent = '\u300C Assign to ' + currentView + ' \u300D';
+  var list = document.getElementById('assignList');
+  var emptyMsg = document.getElementById('assignEmpty');
+  list.innerHTML = '';
+  var unassigned = Object.keys(SECRETS).filter(function(a) { return app.secrets.indexOf(a) === -1; });
+  if (unassigned.length === 0) {
+    emptyMsg.style.display = 'block';
+  } else {
+    emptyMsg.style.display = 'none';
+    for (var i = 0; i < unassigned.length; i++) {
+      var alias = unassigned[i];
+      var s = SECRETS[alias];
+      var row = document.createElement('div');
+      row.className = 'assign-row';
+      row.innerHTML = '<input type="checkbox" data-alias="' + esc(alias) + '">' +
+        '<span class="alias-label mono">' + esc(alias) + '</span>' +
+        '<span class="key-label mono">' + esc(s.key) + '</span>' +
+        '<input type="text" placeholder="Override key" data-override="' + esc(alias) + '">';
+      var cb = row.querySelector('input[type="checkbox"]');
+      cb.onchange = (function(r, c) { return function() { r.classList.toggle('selected', c.checked); }; })(row, cb);
+      row.onclick = (function(r, c) { return function(e) {
+        if (e.target.tagName === 'INPUT') { return; }
+        c.checked = !c.checked;
+        r.classList.toggle('selected', c.checked);
+      }; })(row, cb);
+      list.appendChild(row);
+    }
+  }
+  openModal('assignModal');
+}
+
+function doAssign() {
+  var app = APPS[currentView];
+  if (!app) { return; }
+  var count = 0;
+  document.querySelectorAll('#assignList input[type="checkbox"]').forEach(function(cb) {
+    if (!cb.checked) { return; }
+    var alias = cb.dataset.alias;
+    if (app.secrets.indexOf(alias) === -1) { app.secrets.push(alias); count++; }
+    var ov = document.querySelector('#assignList input[data-override="' + alias + '"]');
+    if (ov) { var v = ov.value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, ''); if (v) { app.overrides[alias] = v; } }
+  });
+  saveState();
+  closeModal('assignModal');
+  renderSidebar();
+  renderTable();
+  if (count > 0) {
+    cliLog('enva vault assign --app ' + currentView, count + ' secret(s) assigned.');
+    toast(count + ' secret(s) assigned to ' + currentView + '.');
+  }
+}
+
+function openImportModal() {
+  importData = [];
+  document.getElementById('importPreview').classList.remove('show');
+  document.getElementById('importPreviewBody').innerHTML = '';
+  document.getElementById('importBtn').disabled = true;
+  document.getElementById('fileInput').value = '';
+  var sel = document.getElementById('importTargetApp');
+  sel.innerHTML = '<option value="">— Pool only —</option>';
+  for (var name in APPS) { sel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>'; }
+  openModal('importModal');
+}
+
+function handleFileSelect(e) {
+  var file = e.target.files[0];
+  if (!file) { return; }
+  var reader = new FileReader();
+  reader.onload = function(ev) { parseEnvContent(ev.target.result); };
+  reader.readAsText(file);
+}
+
+var dropzone = document.getElementById('dropzone');
+dropzone.addEventListener('dragover', function(e) { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', function() { dropzone.classList.remove('dragover'); });
+dropzone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  var file = e.dataTransfer.files[0];
+  if (file) { var reader = new FileReader(); reader.onload = function(ev) { parseEnvContent(ev.target.result); }; reader.readAsText(file); }
+});
+
+function parseEnvContent(text) {
+  importData = [];
+  var lines = text.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var trimmed = lines[i].trim();
+    if (!trimmed || trimmed.charAt(0) === '#') { continue; }
+    var eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) { continue; }
+    var key = trimmed.substring(0, eqIdx).trim();
+    var val = trimmed.substring(eqIdx + 1).trim();
+    if ((val.charAt(0) === '"' && val.charAt(val.length-1) === '"') || (val.charAt(0) === "'" && val.charAt(val.length-1) === "'")) { val = val.slice(1, -1); }
+    importData.push({ alias:key.toLowerCase().replace(/_/g, '-'), key:key, value:val });
+  }
+  var body = document.getElementById('importPreviewBody');
+  body.innerHTML = '';
+  for (var j = 0; j < importData.length; j++) {
+    var item = importData[j];
+    var preview = item.value.length > 30 ? item.value.substring(0, 30) + '...' : item.value;
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td><span class="mono">' + esc(item.alias) + '</span></td><td><span class="mono">' + esc(item.key) + '</span></td><td><span class="mono" style="color:var(--muted)">' + esc(preview) + '</span></td>';
+    body.appendChild(tr);
+  }
+  document.getElementById('importPreview').classList.toggle('show', importData.length > 0);
+  document.getElementById('importBtn').disabled = importData.length === 0;
+}
+
+function doImport() {
+  var targetApp = document.getElementById('importTargetApp').value;
+  var count = 0;
+  for (var i = 0; i < importData.length; i++) {
+    var item = importData[i];
+    var alias = item.alias;
+    var suffix = 1;
+    while (SECRETS[alias]) { alias = item.alias + '-' + suffix; suffix++; }
+    SECRETS[alias] = { key:item.key, value:item.value, description:'', tags:[], updated:new Date().toISOString() };
+    if (targetApp && APPS[targetApp]) { if (APPS[targetApp].secrets.indexOf(alias) === -1) { APPS[targetApp].secrets.push(alias); } }
+    count++;
+  }
+  saveState();
+  closeModal('importModal');
+  renderSidebar();
+  renderTable();
+  cliLog('enva vault import-env --from .env', 'Imported ' + count + ' secret(s).');
+  toast('Imported ' + count + ' secret(s).');
+}
+
+function doExport() {
+  var scopeSel = document.getElementById('exportScope');
+  scopeSel.innerHTML = '<option value="all">All Secrets</option>';
+  for (var name in APPS) { scopeSel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>'; }
+  if (currentView !== 'all') { scopeSel.value = currentView; }
+  updateExportPreview();
+  scopeSel.onchange = updateExportPreview;
+  document.getElementById('exportFormat').onchange = updateExportPreview;
+  openModal('exportModal');
+}
+
+function updateExportPreview() {
+  var scope = document.getElementById('exportScope').value;
+  var format = document.getElementById('exportFormat').value;
+  var entries = [];
+  if (scope === 'all') {
+    for (var alias in SECRETS) { var s = SECRETS[alias]; entries.push({ alias:alias, key:s.key, value:s.value }); }
+  } else {
+    var app = APPS[scope];
+    if (app) {
+      for (var i = 0; i < app.secrets.length; i++) {
+        var a = app.secrets[i]; var sec = SECRETS[a];
+        if (!sec) { continue; }
+        entries.push({ alias:a, key:app.overrides[a] || sec.key, value:sec.value });
+      }
+    }
+  }
+  var output;
+  if (format === 'env') {
+    output = entries.map(function(e) { return e.key + '=' + e.value; }).join('\n');
+  } else {
+    var obj = {};
+    for (var j = 0; j < entries.length; j++) { obj[entries[j].key] = entries[j].value; }
+    output = JSON.stringify(obj, null, 2);
+  }
+  document.getElementById('exportPreview').value = output;
+}
+
+function copyExport() {
+  var text = document.getElementById('exportPreview').value;
+  navigator.clipboard.writeText(text).then(function() { toast('Copied to clipboard.'); }).catch(function() {
+    document.getElementById('exportPreview').select();
+    document.execCommand('copy');
+    toast('Copied to clipboard.');
+  });
+}
+
+function openAddAppModal() {
+  document.getElementById('newAppName').value = '';
+  document.getElementById('newAppDesc').value = '';
+  document.getElementById('appNameError').classList.remove('show');
+  openModal('addAppModal');
+  document.getElementById('newAppName').focus();
+}
+
+function doAddApp() {
+  var name = document.getElementById('newAppName').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  var desc = document.getElementById('newAppDesc').value.trim();
+  if (!name) { return; }
+  if (APPS[name]) { document.getElementById('appNameError').classList.add('show'); return; }
+  APPS[name] = { description:desc, secrets:[], overrides:{} };
+  saveState();
+  closeModal('addAppModal');
+  renderSidebar();
+  cliLog('enva vault assign --app ' + name, 'App "' + name + '" created.');
+  toast('App "' + name + '" created.');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) { overlay.classList.remove('show'); } });
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.show').forEach(function(m) { m.classList.remove('show'); });
+    var cf = document.getElementById('confirmOverlay');
+    if (cf.classList.contains('show')) { closeConfirm(false); }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    var sm = document.getElementById('secretModal');
+    if (sm.classList.contains('show') && document.activeElement.tagName !== 'TEXTAREA') { e.preventDefault(); saveSecret(); }
+    var am = document.getElementById('addAppModal');
+    if (am.classList.contains('show')) { e.preventDefault(); doAddApp(); }
+  }
+});
+
+function showConfirm(title, text, onConfirm) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmText').textContent = text;
+  confirmCallback = onConfirm;
+  document.getElementById('confirmOverlay').classList.add('show');
+}
+
+function closeConfirm(confirmed) {
+  document.getElementById('confirmOverlay').classList.remove('show');
+  if (confirmed && confirmCallback) { confirmCallback(); }
+  confirmCallback = null;
+}
+</script>
+</body>
+</html>
