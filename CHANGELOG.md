@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-31
+
+### Added
+
+- **GitHub Pages site**: Static landing page at `yorha-agents.github.io/EnvA/` with feature overview, installation guide, and quickstart — built with NieR:Automata design language.
+- **Interactive demo**: Browser-based vault simulation at `demo.html` with full CRUD workflow, localStorage persistence, pre-seeded example data, and simulated CLI output.
+- **NieR:Automata branding**: New SVG logo, icon, and banner in YoRHa military style (gold/black/ivory palette, lock motif, corner brackets, diamond decorations).
+- **Design language spec**: `docs/assets/branding/BRANDING.md` with complete palette, typography (EB Garamond + Jost + Share Tech Mono), WCAG AA contrast ratios, spacing, and decoration reference.
+- **GitHub Actions**: `deploy-pages.yml` workflow for automatic site deployment with HTML validation.
+- **Community files**: `CONTRIBUTING.md`, issue templates (bug report, feature request), and PR template.
+
+### Changed
+
+- **Web UI restyle**: Migrated the embedded product web UI from indigo/Outfit to NieR:Automata gold/Jost design language — CSS-only changes with zero JavaScript modifications. Dark theme uses black/gold/ivory; light theme uses parchment/amber.
+- **README rewrite**: Updated with NieR narrative style, new banner, demo links, SVG mock screenshots, and restructured documentation links.
+- **Favicon**: Updated `icon.svg` to NieR-style lock icon with corner brackets.
+- **Border radius**: Reduced from 8px/12px to 2px/4px across all UI components for sharper NieR aesthetic.
+
 ## [0.3.0] - 2026-03-31
 
 ### Added
