@@ -29,6 +29,9 @@ dirs = "6"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "now"] }
 base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+semver = "1"
+sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hostname = "0.4"
@@ -41,6 +44,7 @@ ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }
 
 [dev-dependencies]
 assert_cmd = "2"
+mockito = "1"
 predicates = "3"
 tower = "0.5"
 hyper = "1"

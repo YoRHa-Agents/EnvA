@@ -10,7 +10,7 @@ use axum::{
 use rand::RngCore;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex as TokioMutex;
 
@@ -18,9 +18,22 @@ use super::auth::AuthManager;
 use crate::{
     paths,
     ssh_config::{self, SshConfigError, SshHostConfig},
-    sync,
+    ssh_hosts::{self, ManagedSshHostsError},
+    sync, update,
     vault::{VaultError, VaultStore},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SshHostOrigin {
+    Config,
+    Managed,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedSshHost {
+    host: SshHostConfig,
+    origin: SshHostOrigin,
+}
 
 pub struct AppState {
     vault_path: RwLock<String>,
@@ -28,6 +41,7 @@ pub struct AppState {
     password: RwLock<SecretString>,
     vault_write_lock: TokioMutex<()>,
     ssh_config_path: RwLock<String>,
+    managed_ssh_hosts_path: RwLock<String>,
     ssh_hosts: RwLock<Option<Vec<SshHostConfig>>>,
     remote_sync: Arc<dyn RemoteSyncExecutor>,
 }
@@ -51,6 +65,22 @@ trait RemoteSyncExecutor: Send + Sync {
         port: u16,
         overwrite: bool,
         auth: sync::SshAuthOptions,
+    ) -> Result<(), sync::SyncError>;
+
+    fn download_vault_bytes(
+        &self,
+        remote_spec: &str,
+        port: u16,
+        auth: sync::SshAuthOptions,
+    ) -> Result<Vec<u8>, sync::SyncError>;
+
+    fn upload_vault_bytes(
+        &self,
+        remote_spec: &str,
+        port: u16,
+        overwrite: bool,
+        auth: sync::SshAuthOptions,
+        contents: Vec<u8>,
     ) -> Result<(), sync::SyncError>;
 }
 
@@ -94,6 +124,26 @@ impl RemoteSyncExecutor for DefaultRemoteSyncExecutor {
             auth,
         )
     }
+
+    fn download_vault_bytes(
+        &self,
+        remote_spec: &str,
+        port: u16,
+        auth: sync::SshAuthOptions,
+    ) -> Result<Vec<u8>, sync::SyncError> {
+        sync::download_remote_vault(remote_spec, port, auth)
+    }
+
+    fn upload_vault_bytes(
+        &self,
+        remote_spec: &str,
+        port: u16,
+        overwrite: bool,
+        auth: sync::SshAuthOptions,
+        contents: Vec<u8>,
+    ) -> Result<(), sync::SyncError> {
+        sync::upload_remote_vault(remote_spec, port, overwrite, auth, &contents)
+    }
 }
 
 impl AppState {
@@ -101,6 +151,7 @@ impl AppState {
         Self::new_with_options(
             vault_path,
             ssh_config::DEFAULT_SSH_CONFIG_PATH.to_string(),
+            ssh_hosts::DEFAULT_MANAGED_SSH_HOSTS_PATH.to_string(),
             Arc::new(DefaultRemoteSyncExecutor),
         )
     }
@@ -108,6 +159,7 @@ impl AppState {
     fn new_with_options(
         vault_path: String,
         ssh_config_path: String,
+        managed_ssh_hosts_path: String,
         remote_sync: Arc<dyn RemoteSyncExecutor>,
     ) -> Arc<Self> {
         let mut secret = vec![0u8; 32];
@@ -118,6 +170,7 @@ impl AppState {
             password: RwLock::new(SecretString::from(String::new())),
             vault_write_lock: TokioMutex::new(()),
             ssh_config_path: RwLock::new(ssh_config_path),
+            managed_ssh_hosts_path: RwLock::new(managed_ssh_hosts_path),
             ssh_hosts: RwLock::new(None),
             remote_sync,
         })
@@ -141,7 +194,17 @@ impl AppState {
             .clone()
     }
 
-    fn load_ssh_hosts(&self, force_refresh: bool) -> Result<Vec<SshHostConfig>, SshConfigError> {
+    fn managed_ssh_hosts_path(&self) -> String {
+        self.managed_ssh_hosts_path
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn load_config_ssh_hosts(
+        &self,
+        force_refresh: bool,
+    ) -> Result<Vec<SshHostConfig>, SshConfigError> {
         if !force_refresh {
             let cached = self
                 .ssh_hosts
@@ -156,6 +219,10 @@ impl AppState {
         let hosts = ssh_config::load_ssh_hosts(&self.ssh_config_path())?;
         *self.ssh_hosts.write().unwrap_or_else(|e| e.into_inner()) = Some(hosts.clone());
         Ok(hosts)
+    }
+
+    fn load_managed_ssh_hosts(&self) -> Result<Vec<SshHostConfig>, ManagedSshHostsError> {
+        ssh_hosts::load_managed_hosts(&self.managed_ssh_hosts_path())
     }
 
     fn clear_password(&self) {
@@ -262,12 +329,35 @@ fn ssh_config_error_response(error: SshConfigError) -> (StatusCode, Json<ErrorRe
     )
 }
 
+fn managed_ssh_hosts_error_response(
+    error: ManagedSshHostsError,
+) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match &error {
+        ManagedSshHostsError::EmptyPath | ManagedSshHostsError::Resolve { .. } => {
+            StatusCode::BAD_REQUEST
+        }
+        ManagedSshHostsError::DuplicateAlias { .. } => StatusCode::CONFLICT,
+        ManagedSshHostsError::Read { .. }
+        | ManagedSshHostsError::Parse { .. }
+        | ManagedSshHostsError::Serialize { .. }
+        | ManagedSshHostsError::Write { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    (
+        status,
+        Json(ErrorResponse {
+            error: error.to_string(),
+        }),
+    )
+}
+
 fn sync_error_response(error: sync::SyncError) -> (StatusCode, Json<ErrorResponse>) {
     let status = match error {
         sync::SyncError::InvalidRemoteTarget(_) => StatusCode::BAD_REQUEST,
         sync::SyncError::RemoteVaultExists(_) | sync::SyncError::LocalVaultExists(_) => {
             StatusCode::CONFLICT
         }
+        sync::SyncError::RemoteVaultNotFound(_) => StatusCode::NOT_FOUND,
         sync::SyncError::Vault(_) => StatusCode::UNPROCESSABLE_ENTITY,
         sync::SyncError::Ssh(_) => StatusCode::BAD_GATEWAY,
         sync::SyncError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -281,9 +371,84 @@ fn sync_error_response(error: sync::SyncError) -> (StatusCode, Json<ErrorRespons
     )
 }
 
+fn update_error_response(error: update::UpdateError) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match error {
+        update::UpdateError::Network { .. } | update::UpdateError::ApiStatus { .. } => {
+            StatusCode::BAD_GATEWAY
+        }
+        update::UpdateError::ReleaseNotFound { .. } => StatusCode::NOT_FOUND,
+        update::UpdateError::UnsupportedPlatform { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+        update::UpdateError::AssetMissing { .. }
+        | update::UpdateError::Verification { .. }
+        | update::UpdateError::DowngradeRequiresForce { .. }
+        | update::UpdateError::PermissionDenied { .. }
+        | update::UpdateError::Io { .. }
+        | update::UpdateError::InvalidPayload { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    (
+        status,
+        Json(ErrorResponse {
+            error: error.to_string(),
+        }),
+    )
+}
+
+fn load_available_ssh_hosts(
+    state: &AppState,
+    force_refresh: bool,
+) -> Result<Vec<ResolvedSshHost>, (StatusCode, Json<ErrorResponse>)> {
+    let config_hosts = state
+        .load_config_ssh_hosts(force_refresh)
+        .map_err(ssh_config_error_response)?;
+    let managed_hosts = state
+        .load_managed_ssh_hosts()
+        .map_err(managed_ssh_hosts_error_response)?;
+
+    let mut merged = BTreeMap::new();
+    for host in config_hosts {
+        merged.insert(
+            host.alias.clone(),
+            ResolvedSshHost {
+                host,
+                origin: SshHostOrigin::Config,
+            },
+        );
+    }
+    for host in managed_hosts {
+        merged.insert(
+            host.alias.clone(),
+            ResolvedSshHost {
+                host,
+                origin: SshHostOrigin::Managed,
+            },
+        );
+    }
+    Ok(merged.into_values().collect())
+}
+
+fn find_available_ssh_host(
+    state: &AppState,
+    force_refresh: bool,
+    alias: &str,
+) -> Result<ResolvedSshHost, (StatusCode, Json<ErrorResponse>)> {
+    load_available_ssh_hosts(state, force_refresh)?
+        .into_iter()
+        .find(|candidate| candidate.host.alias == alias)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("SSH host not found: {alias}"),
+                }),
+            )
+        })
+}
+
 fn ssh_host_remote_spec(
     host: &SshHostConfig,
     remote_path: &str,
+    ssh_password: Option<&str>,
 ) -> Result<(String, sync::SshAuthOptions), (StatusCode, Json<ErrorResponse>)> {
     let trimmed = remote_path.trim();
     if trimmed.is_empty() {
@@ -293,21 +458,25 @@ fn ssh_host_remote_spec(
     Ok((
         format!("{}@{}:{trimmed}", host.user, host.hostname),
         sync::SshAuthOptions {
-            password: None,
+            password: ssh_password
+                .filter(|_| host.identity_file.is_none())
+                .map(str::to_owned),
             key_path: host.identity_file.clone(),
             passphrase: None,
         },
     ))
 }
 
-fn ssh_host_response(host: &SshHostConfig) -> serde_json::Value {
+fn ssh_host_response(host: &ResolvedSshHost) -> serde_json::Value {
     serde_json::json!({
-        "alias": host.alias,
-        "hostname": host.hostname,
-        "user": host.user,
-        "port": host.port,
-        "identity_file": host.identity_file,
-        "auth_source": if host.identity_file.is_some() { "identity_file" } else { "ssh_agent" }
+        "alias": host.host.alias,
+        "hostname": host.host.hostname,
+        "user": host.host.user,
+        "port": host.host.port,
+        "identity_file": host.host.identity_file,
+        "auth_source": if host.host.identity_file.is_some() { "identity_file" } else { "ssh_agent" },
+        "source": if host.origin == SshHostOrigin::Managed { "web" } else { "ssh_config" },
+        "editable": host.origin == SshHostOrigin::Managed
     })
 }
 
@@ -365,6 +534,45 @@ struct RemoteActionInput {
     remote_path: String,
     #[serde(default)]
     overwrite: bool,
+}
+
+#[derive(Deserialize)]
+struct RemotePreviewInput {
+    host_alias: String,
+    remote_path: String,
+    remote_password: String,
+    #[serde(default)]
+    reveal: bool,
+}
+
+#[derive(Deserialize)]
+struct SyncMergeInput {
+    host_alias: String,
+    remote_path: String,
+    resolutions: Vec<crate::vault::ConflictResolution>,
+}
+
+#[derive(Deserialize)]
+struct SelectiveRemoteActionInput {
+    host_alias: String,
+    remote_path: String,
+    #[serde(default)]
+    selected_secrets: Vec<String>,
+    #[serde(default)]
+    selected_apps: Vec<String>,
+    #[serde(default)]
+    include_bindings: bool,
+}
+
+#[derive(Deserialize)]
+struct SshHostInput {
+    alias: String,
+    hostname: String,
+    user: String,
+    #[serde(default = "default_ssh_port")]
+    port: u16,
+    #[serde(default)]
+    identity_file: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -428,17 +636,31 @@ struct UpdateAppInput {
     app_path: Option<String>,
 }
 
+fn default_ssh_port() -> u16 {
+    22
+}
+
 pub fn api_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
+        .route("/update/check", get(check_for_updates))
         .route("/paths/resolve", post(resolve_path))
         .route(
             "/session/settings",
             get(get_session_settings).put(update_session_settings),
         )
-        .route("/ssh/hosts", get(list_ssh_hosts))
+        .route("/ssh/hosts", get(list_ssh_hosts).post(create_ssh_host))
+        .route(
+            "/ssh/hosts/{alias}",
+            put(update_ssh_host).delete(delete_ssh_host),
+        )
         .route("/ssh/refresh", post(refresh_ssh_hosts))
+        .route("/ssh/remote-preview", post(remote_preview))
+        .route("/ssh/selective-deploy", post(selective_deploy_to_ssh_host))
+        .route("/ssh/selective-sync", post(selective_sync_from_ssh_host))
+        .route("/ssh/sync-preview", post(sync_preview))
+        .route("/ssh/sync-merge", post(sync_merge))
         .route("/ssh/deploy", post(deploy_vault_to_ssh_host))
         .route("/ssh/sync-from", post(sync_vault_from_ssh_host))
         .route("/vault/init", post(init_vault))
@@ -499,17 +721,173 @@ async fn get_session_settings(
     }))
 }
 
+async fn check_for_updates(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<update::UpdateCheck>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    tokio::task::spawn_blocking(|| update::check_for_update(None))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Update check task failed: {error}"),
+                }),
+            )
+        })?
+        .map(Json)
+        .map_err(update_error_response)
+}
+
+fn normalized_selection(values: &[String]) -> HashSet<String> {
+    values
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn build_merge_resolutions(
+    diff: &crate::vault::VaultDiff,
+    keep_other: bool,
+) -> Vec<crate::vault::ConflictResolution> {
+    let secret_resolutions = diff.secrets.iter().filter_map(|item| {
+        if item.status != crate::vault::DiffStatus::Modified {
+            return None;
+        }
+        Some(if keep_other {
+            crate::vault::ConflictResolution::KeepRemote {
+                key: item.alias.clone(),
+            }
+        } else {
+            crate::vault::ConflictResolution::KeepLocal {
+                key: item.alias.clone(),
+            }
+        })
+    });
+    let app_resolutions = diff.apps.iter().filter_map(|item| {
+        if item.status != crate::vault::DiffStatus::Modified {
+            return None;
+        }
+        Some(if keep_other {
+            crate::vault::ConflictResolution::KeepRemote {
+                key: item.name.clone(),
+            }
+        } else {
+            crate::vault::ConflictResolution::KeepLocal {
+                key: item.name.clone(),
+            }
+        })
+    });
+    secret_resolutions.chain(app_resolutions).collect()
+}
+
+fn build_preview_payload(
+    store: &VaultStore,
+    reveal: bool,
+) -> Result<serde_json::Value, (StatusCode, Json<ErrorResponse>)> {
+    let metadata = store.list_all_metadata().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    let mut secrets = Vec::with_capacity(metadata.secrets.len());
+    for secret in metadata.secrets {
+        let mut payload = serde_json::json!({
+            "id": secret.id,
+            "alias": secret.alias,
+            "key": secret.key,
+            "description": secret.description,
+            "tags": secret.tags,
+            "apps": secret.apps,
+            "updated_at": secret.updated_at,
+        });
+        if reveal {
+            let alias = payload["alias"].as_str().unwrap_or_default().to_string();
+            let value = store.get(&alias).map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                    }),
+                )
+            })?;
+            payload["value"] = serde_json::Value::String(value);
+        }
+        secrets.push(payload);
+    }
+
+    let apps: Vec<_> = metadata
+        .apps
+        .into_iter()
+        .map(|app| {
+            serde_json::json!({
+                "id": app.id,
+                "name": app.name,
+                "description": app.description,
+                "app_path": app.app_path,
+                "secret_count": app.secret_count,
+            })
+        })
+        .collect();
+    let bindings: Vec<_> = metadata
+        .bindings
+        .into_iter()
+        .map(|binding| {
+            serde_json::json!({
+                "app_name": binding.app_name,
+                "secret_id": binding.secret_id,
+                "alias": binding.alias,
+                "key": binding.key,
+                "injected_as": binding.injected_as,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "secrets": secrets,
+        "apps": apps,
+        "bindings": bindings,
+    }))
+}
+
+fn remote_vault_load_error_response(error: VaultError) -> (StatusCode, Json<ErrorResponse>) {
+    let message = error.to_string();
+    let status = if message.contains("authentication failed")
+        || message.contains("HMAC verification failed")
+        || message.contains("missing HMAC")
+        || message.contains("password")
+    {
+        StatusCode::UNAUTHORIZED
+    } else if matches!(error, VaultError::Corrupted(_)) {
+        StatusCode::UNPROCESSABLE_ENTITY
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+    (
+        status,
+        Json(ErrorResponse {
+            error: message,
+        }),
+    )
+}
+
 async fn list_ssh_hosts(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_auth(&state, &headers)?;
-    let hosts = state
-        .load_ssh_hosts(false)
-        .map_err(ssh_config_error_response)?;
+    let hosts = load_available_ssh_hosts(&state, false)?;
     let payload: Vec<serde_json::Value> = hosts.iter().map(ssh_host_response).collect();
     Ok(Json(serde_json::json!({
         "config_path": state.ssh_config_path(),
+        "managed_path": state.managed_ssh_hosts_path(),
         "hosts": payload,
     })))
 }
@@ -519,14 +897,605 @@ async fn refresh_ssh_hosts(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_auth(&state, &headers)?;
-    let hosts = state
-        .load_ssh_hosts(true)
-        .map_err(ssh_config_error_response)?;
+    let hosts = load_available_ssh_hosts(&state, true)?;
     let payload: Vec<serde_json::Value> = hosts.iter().map(ssh_host_response).collect();
     Ok(Json(serde_json::json!({
         "config_path": state.ssh_config_path(),
+        "managed_path": state.managed_ssh_hosts_path(),
         "hosts": payload,
         "refreshed": true,
+    })))
+}
+
+fn normalize_ssh_host_input(
+    body: SshHostInput,
+) -> Result<SshHostConfig, (StatusCode, Json<ErrorResponse>)> {
+    let SshHostInput {
+        alias,
+        hostname,
+        user,
+        port,
+        identity_file,
+    } = body;
+    let alias = alias.trim();
+    let hostname = hostname.trim();
+    let user = user.trim();
+    if alias.is_empty() || hostname.is_empty() || user.is_empty() {
+        return Err(bad_request("alias, hostname, and user are required"));
+    }
+    if port == 0 {
+        return Err(bad_request("port must be greater than 0"));
+    }
+
+    let identity_file = identity_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            paths::resolve_named_path(value, "ssh key").map_err(|e| bad_request(e.to_string()))
+        })
+        .transpose()?;
+
+    Ok(SshHostConfig {
+        alias: alias.to_string(),
+        hostname: hostname.to_string(),
+        user: user.to_string(),
+        port,
+        identity_file,
+    })
+}
+
+async fn create_ssh_host(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<SshHostInput>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let host = normalize_ssh_host_input(body)?;
+    let config_hosts = state
+        .load_config_ssh_hosts(false)
+        .map_err(ssh_config_error_response)?;
+    if config_hosts
+        .iter()
+        .any(|candidate| candidate.alias == host.alias)
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: format!(
+                    "SSH host alias already exists in ssh config: {}",
+                    host.alias
+                ),
+            }),
+        ));
+    }
+
+    let mut managed_hosts = state
+        .load_managed_ssh_hosts()
+        .map_err(managed_ssh_hosts_error_response)?;
+    if managed_hosts
+        .iter()
+        .any(|candidate| candidate.alias == host.alias)
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: format!("SSH host alias already exists: {}", host.alias),
+            }),
+        ));
+    }
+
+    managed_hosts.push(host.clone());
+    ssh_hosts::save_managed_hosts(&state.managed_ssh_hosts_path(), &managed_hosts)
+        .map_err(managed_ssh_hosts_error_response)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "created": true,
+            "host": ssh_host_response(&ResolvedSshHost {
+                host,
+                origin: SshHostOrigin::Managed,
+            }),
+        })),
+    ))
+}
+
+async fn update_ssh_host(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(alias): Path<String>,
+    Json(body): Json<SshHostInput>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let updated_host = normalize_ssh_host_input(body)?;
+    let config_hosts = state
+        .load_config_ssh_hosts(false)
+        .map_err(ssh_config_error_response)?;
+    if config_hosts
+        .iter()
+        .any(|candidate| candidate.alias == alias)
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: format!("SSH host '{alias}' comes from ssh config and is read-only"),
+            }),
+        ));
+    }
+
+    let mut managed_hosts = state
+        .load_managed_ssh_hosts()
+        .map_err(managed_ssh_hosts_error_response)?;
+    let existing_index = managed_hosts
+        .iter()
+        .position(|candidate| candidate.alias == alias)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("SSH host not found: {alias}"),
+                }),
+            )
+        })?;
+
+    if updated_host.alias != alias {
+        if config_hosts
+            .iter()
+            .any(|candidate| candidate.alias == updated_host.alias)
+            || managed_hosts.iter().enumerate().any(|(index, candidate)| {
+                index != existing_index && candidate.alias == updated_host.alias
+            })
+        {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: format!("SSH host alias already exists: {}", updated_host.alias),
+                }),
+            ));
+        }
+    }
+
+    managed_hosts[existing_index] = updated_host.clone();
+    ssh_hosts::save_managed_hosts(&state.managed_ssh_hosts_path(), &managed_hosts)
+        .map_err(managed_ssh_hosts_error_response)?;
+
+    Ok(Json(serde_json::json!({
+        "updated": true,
+        "previous_alias": alias,
+        "host": ssh_host_response(&ResolvedSshHost {
+            host: updated_host,
+            origin: SshHostOrigin::Managed,
+        }),
+    })))
+}
+
+async fn delete_ssh_host(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(alias): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let config_hosts = state
+        .load_config_ssh_hosts(false)
+        .map_err(ssh_config_error_response)?;
+    if config_hosts
+        .iter()
+        .any(|candidate| candidate.alias == alias)
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: format!("SSH host '{alias}' comes from ssh config and is read-only"),
+            }),
+        ));
+    }
+
+    let mut managed_hosts = state
+        .load_managed_ssh_hosts()
+        .map_err(managed_ssh_hosts_error_response)?;
+    let original_len = managed_hosts.len();
+    managed_hosts.retain(|candidate| candidate.alias != alias);
+    if managed_hosts.len() == original_len {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("SSH host not found: {alias}"),
+            }),
+        ));
+    }
+
+    ssh_hosts::save_managed_hosts(&state.managed_ssh_hosts_path(), &managed_hosts)
+        .map_err(managed_ssh_hosts_error_response)?;
+    Ok(Json(serde_json::json!({
+        "deleted": true,
+        "alias": alias,
+    })))
+}
+
+async fn remote_preview(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<RemotePreviewInput>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    if body.remote_password.trim().is_empty() {
+        return Err(bad_request("Remote password must not be empty"));
+    }
+
+    let host = find_available_ssh_host(&state, false, &body.host_alias)?;
+    let (remote_spec, auth) = ssh_host_remote_spec(
+        &host.host,
+        &body.remote_path,
+        Some(body.remote_password.as_str()),
+    )?;
+    let executor = state.remote_sync.clone();
+    let port = host.host.port;
+    let remote_spec_for_response = remote_spec.clone();
+    let remote_password = body.remote_password.clone();
+    let reveal = body.reveal;
+
+    let bytes = tokio::task::spawn_blocking(move || {
+        executor.download_vault_bytes(&remote_spec, port, auth)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Remote preview task failed: {error}"),
+            }),
+        )
+    })?
+    .map_err(|error| match error {
+        sync::SyncError::Ssh(message) if message.to_lowercase().contains("auth") => (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse { error: message }),
+        ),
+        other => sync_error_response(other),
+    })?;
+
+    let store = VaultStore::load_from_bytes(&bytes, &remote_password)
+        .map_err(remote_vault_load_error_response)?;
+    let payload = build_preview_payload(&store, reveal)?;
+    Ok(Json(serde_json::json!({
+        "host_alias": body.host_alias,
+        "remote_spec": remote_spec_for_response,
+        "reveal": reveal,
+        "secrets": payload["secrets"].clone(),
+        "apps": payload["apps"].clone(),
+        "bindings": payload["bindings"].clone(),
+    })))
+}
+
+async fn sync_preview(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<RemoteActionInput>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let (vault_path, password) = current_vault_context(&state)?;
+    let host = find_available_ssh_host(&state, false, &body.host_alias)?;
+    let (remote_spec, auth) = ssh_host_remote_spec(&host.host, &body.remote_path, None)?;
+    let executor = state.remote_sync.clone();
+    let port = host.host.port;
+
+    let bytes = tokio::task::spawn_blocking(move || {
+        executor.download_vault_bytes(&remote_spec, port, auth)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Remote diff task failed: {error}"),
+            }),
+        )
+    })?
+    .map_err(sync_error_response)?;
+
+    let local_store = VaultStore::load(&vault_path, &password).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    let remote_store =
+        VaultStore::load_from_bytes(&bytes, &password).map_err(remote_vault_load_error_response)?;
+    let diff = local_store.diff(&remote_store);
+    let payload = serde_json::to_value(diff).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(payload))
+}
+
+async fn sync_merge(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<SyncMergeInput>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let _guard = state.vault_write_lock.lock().await;
+    let (vault_path, password) = current_vault_context(&state)?;
+    let host = find_available_ssh_host(&state, false, &body.host_alias)?;
+    let (remote_spec, auth) = ssh_host_remote_spec(&host.host, &body.remote_path, None)?;
+    let executor = state.remote_sync.clone();
+    let port = host.host.port;
+
+    let bytes = tokio::task::spawn_blocking(move || {
+        executor.download_vault_bytes(&remote_spec, port, auth)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Remote merge task failed: {error}"),
+            }),
+        )
+    })?
+    .map_err(sync_error_response)?;
+
+    let mut local_store = VaultStore::load(&vault_path, &password).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    let remote_store =
+        VaultStore::load_from_bytes(&bytes, &password).map_err(remote_vault_load_error_response)?;
+    local_store
+        .merge_from(&remote_store, &body.resolutions, None, None)
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ErrorResponse {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+    local_store.save().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "merged": true,
+        "host_alias": body.host_alias,
+    })))
+}
+
+async fn selective_sync_from_ssh_host(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<SelectiveRemoteActionInput>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let _guard = state.vault_write_lock.lock().await;
+    let selected_secrets = normalized_selection(&body.selected_secrets);
+    let selected_apps = normalized_selection(&body.selected_apps);
+    if selected_secrets.is_empty() && selected_apps.is_empty() {
+        return Err(bad_request("Select at least one secret or application"));
+    }
+
+    let (vault_path, password) = current_vault_context(&state)?;
+    let host = find_available_ssh_host(&state, false, &body.host_alias)?;
+    let (remote_spec, auth) = ssh_host_remote_spec(&host.host, &body.remote_path, None)?;
+    let executor = state.remote_sync.clone();
+    let port = host.host.port;
+
+    let bytes = tokio::task::spawn_blocking(move || {
+        executor.download_vault_bytes(&remote_spec, port, auth)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Selective sync task failed: {error}"),
+            }),
+        )
+    })?
+    .map_err(sync_error_response)?;
+
+    let mut local_store = VaultStore::load(&vault_path, &password).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    let remote_store =
+        VaultStore::load_from_bytes(&bytes, &password).map_err(remote_vault_load_error_response)?;
+    let remote_subset = remote_store
+        .clone_selected(&selected_secrets, &selected_apps, body.include_bindings)
+        .map_err(|error| {
+            let status = match error {
+                VaultError::AliasNotFound(_) | VaultError::AppNotFound(_) => StatusCode::NOT_FOUND,
+                VaultError::Corrupted(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            (
+                status,
+                Json(ErrorResponse {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+    let diff = local_store.diff(&remote_subset);
+    let resolutions = build_merge_resolutions(&diff, true);
+    local_store
+        .merge_from(&remote_subset, &resolutions, None, None)
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ErrorResponse {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+    local_store.save().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    let metadata = remote_subset.list_all_metadata().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(serde_json::json!({
+        "synced": true,
+        "host_alias": body.host_alias,
+        "selected_secret_count": metadata.secrets.len(),
+        "selected_app_count": metadata.apps.len(),
+        "selected_binding_count": metadata.bindings.len(),
+        "include_bindings": body.include_bindings,
+    })))
+}
+
+async fn selective_deploy_to_ssh_host(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<SelectiveRemoteActionInput>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let _guard = state.vault_write_lock.lock().await;
+    let selected_secrets = normalized_selection(&body.selected_secrets);
+    let selected_apps = normalized_selection(&body.selected_apps);
+    if selected_secrets.is_empty() && selected_apps.is_empty() {
+        return Err(bad_request("Select at least one secret or application"));
+    }
+
+    let (vault_path, password) = current_vault_context(&state)?;
+    let local_store = VaultStore::load(&vault_path, &password).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+    let local_subset = local_store
+        .clone_selected(&selected_secrets, &selected_apps, body.include_bindings)
+        .map_err(|error| {
+            let status = match error {
+                VaultError::AliasNotFound(_) | VaultError::AppNotFound(_) => StatusCode::NOT_FOUND,
+                VaultError::Corrupted(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            (
+                status,
+                Json(ErrorResponse {
+                    error: error.to_string(),
+                }),
+            )
+        })?;
+
+    let host = find_available_ssh_host(&state, false, &body.host_alias)?;
+    let (remote_spec, auth) = ssh_host_remote_spec(&host.host, &body.remote_path, None)?;
+    let executor = state.remote_sync.clone();
+    let port = host.host.port;
+    let remote_spec_for_download = remote_spec.clone();
+    let auth_for_download = auth.clone();
+    let download_result = tokio::task::spawn_blocking(move || {
+        executor.download_vault_bytes(&remote_spec_for_download, port, auth_for_download)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Selective deploy task failed: {error}"),
+            }),
+        )
+    })?;
+
+    let mut final_store = match download_result {
+        Ok(bytes) => {
+            let mut remote_store = VaultStore::load_from_bytes(&bytes, &password)
+                .map_err(remote_vault_load_error_response)?;
+            let diff = remote_store.diff(&local_subset);
+            let resolutions = build_merge_resolutions(&diff, true);
+            remote_store
+                .merge_from(&local_subset, &resolutions, None, None)
+                .map_err(|error| {
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(ErrorResponse {
+                            error: error.to_string(),
+                        }),
+                    )
+                })?;
+            remote_store
+        }
+        Err(sync::SyncError::RemoteVaultNotFound(_)) => local_subset,
+        Err(other) => return Err(sync_error_response(other)),
+    };
+
+    let final_bytes = final_store.export_bytes().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    let metadata = final_store.list_all_metadata().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    let executor = state.remote_sync.clone();
+    let upload_spec = remote_spec.clone();
+    tokio::task::spawn_blocking(move || {
+        executor.upload_vault_bytes(&upload_spec, port, true, auth, final_bytes)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Selective deploy upload failed: {error}"),
+            }),
+        )
+    })?
+    .map_err(sync_error_response)?;
+
+    Ok(Json(serde_json::json!({
+        "deployed": true,
+        "host_alias": body.host_alias,
+        "remote_spec": remote_spec,
+        "selected_secret_count": metadata.secrets.len(),
+        "selected_app_count": metadata.apps.len(),
+        "selected_binding_count": metadata.bindings.len(),
+        "include_bindings": body.include_bindings,
     })))
 }
 
@@ -538,33 +1507,14 @@ async fn deploy_vault_to_ssh_host(
     require_auth(&state, &headers)?;
     let _guard = state.vault_write_lock.lock().await;
     let (vault_path, password) = current_vault_context(&state)?;
-    let hosts = state
-        .load_ssh_hosts(false)
-        .map_err(ssh_config_error_response)?;
-    let host = hosts
-        .into_iter()
-        .find(|candidate| candidate.alias == body.host_alias)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("SSH host not found: {}", body.host_alias),
-                }),
-            )
-        })?;
-    let (remote_spec, auth) = ssh_host_remote_spec(&host, &body.remote_path)?;
+    let host = find_available_ssh_host(&state, false, &body.host_alias)?;
+    let (remote_spec, auth) = ssh_host_remote_spec(&host.host, &body.remote_path, None)?;
     let executor = state.remote_sync.clone();
     let overwrite = body.overwrite;
+    let port = host.host.port;
     let remote_spec_for_response = remote_spec.clone();
     tokio::task::spawn_blocking(move || {
-        executor.deploy(
-            &vault_path,
-            &password,
-            &remote_spec,
-            host.port,
-            overwrite,
-            auth,
-        )
+        executor.deploy(&vault_path, &password, &remote_spec, port, overwrite, auth)
     })
     .await
     .map_err(|error| {
@@ -593,33 +1543,14 @@ async fn sync_vault_from_ssh_host(
     require_auth(&state, &headers)?;
     let _guard = state.vault_write_lock.lock().await;
     let (vault_path, password) = current_vault_context(&state)?;
-    let hosts = state
-        .load_ssh_hosts(false)
-        .map_err(ssh_config_error_response)?;
-    let host = hosts
-        .into_iter()
-        .find(|candidate| candidate.alias == body.host_alias)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("SSH host not found: {}", body.host_alias),
-                }),
-            )
-        })?;
-    let (remote_spec, auth) = ssh_host_remote_spec(&host, &body.remote_path)?;
+    let host = find_available_ssh_host(&state, false, &body.host_alias)?;
+    let (remote_spec, auth) = ssh_host_remote_spec(&host.host, &body.remote_path, None)?;
     let executor = state.remote_sync.clone();
     let overwrite = body.overwrite;
+    let port = host.host.port;
     let remote_spec_for_response = remote_spec.clone();
     tokio::task::spawn_blocking(move || {
-        executor.sync_from(
-            &vault_path,
-            &password,
-            &remote_spec,
-            host.port,
-            overwrite,
-            auth,
-        )
+        executor.sync_from(&vault_path, &password, &remote_spec, port, overwrite, auth)
     })
     .await
     .map_err(|error| {
@@ -1314,6 +2245,8 @@ mod tests {
         port: u16,
         overwrite: bool,
         key_path: Option<String>,
+        used_password_auth: bool,
+        uploaded_len: Option<usize>,
     }
 
     #[derive(Default)]
@@ -1321,6 +2254,10 @@ mod tests {
         calls: Mutex<Vec<RemoteCall>>,
         deploy_error: Mutex<Option<sync::SyncError>>,
         sync_error: Mutex<Option<sync::SyncError>>,
+        download_error: Mutex<Option<sync::SyncError>>,
+        download_bytes: Mutex<Option<Vec<u8>>>,
+        upload_error: Mutex<Option<sync::SyncError>>,
+        uploaded_payloads: Mutex<Vec<Vec<u8>>>,
     }
 
     impl RemoteSyncExecutor for FakeRemoteSyncExecutor {
@@ -1339,6 +2276,8 @@ mod tests {
                 port,
                 overwrite,
                 key_path: auth.key_path,
+                used_password_auth: auth.password.is_some(),
+                uploaded_len: None,
             });
             if let Some(error) = self.deploy_error.lock().unwrap().take() {
                 return Err(error);
@@ -1361,8 +2300,60 @@ mod tests {
                 port,
                 overwrite,
                 key_path: auth.key_path,
+                used_password_auth: auth.password.is_some(),
+                uploaded_len: None,
             });
             if let Some(error) = self.sync_error.lock().unwrap().take() {
+                return Err(error);
+            }
+            Ok(())
+        }
+
+        fn download_vault_bytes(
+            &self,
+            remote_spec: &str,
+            port: u16,
+            auth: sync::SshAuthOptions,
+        ) -> Result<Vec<u8>, sync::SyncError> {
+            self.calls.lock().unwrap().push(RemoteCall {
+                action: "download",
+                remote_spec: remote_spec.to_string(),
+                port,
+                overwrite: false,
+                key_path: auth.key_path,
+                used_password_auth: auth.password.is_some(),
+                uploaded_len: None,
+            });
+            if let Some(error) = self.download_error.lock().unwrap().take() {
+                return Err(error);
+            }
+            Ok(self
+                .download_bytes
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_default())
+        }
+
+        fn upload_vault_bytes(
+            &self,
+            remote_spec: &str,
+            port: u16,
+            overwrite: bool,
+            auth: sync::SshAuthOptions,
+            contents: Vec<u8>,
+        ) -> Result<(), sync::SyncError> {
+            self.calls.lock().unwrap().push(RemoteCall {
+                action: "upload_bytes",
+                remote_spec: remote_spec.to_string(),
+                port,
+                overwrite,
+                key_path: auth.key_path,
+                used_password_auth: auth.password.is_some(),
+                uploaded_len: Some(contents.len()),
+            });
+            self.uploaded_payloads.lock().unwrap().push(contents);
+            if let Some(error) = self.upload_error.lock().unwrap().take() {
                 return Err(error);
             }
             Ok(())
@@ -1374,9 +2365,14 @@ mod tests {
         ssh_config_path: &str,
     ) -> (Router, Arc<AppState>, Arc<FakeRemoteSyncExecutor>) {
         let remote = Arc::new(FakeRemoteSyncExecutor::default());
+        let managed_path = Path::new(ssh_config_path)
+            .with_file_name("managed-ssh-hosts.json")
+            .to_string_lossy()
+            .to_string();
         let state = AppState::new_with_options(
             vault_path.to_string(),
             ssh_config_path.to_string(),
+            managed_path,
             remote.clone(),
         );
         let router = Router::new().nest("/api", api_router(state.clone()));
@@ -1390,6 +2386,18 @@ mod tests {
             time_cost: 1,
             parallelism: 1,
         }
+    }
+
+    fn create_vault_bytes(
+        path: &Path,
+        password: &str,
+        configure: impl FnOnce(&mut VaultStore),
+    ) -> Vec<u8> {
+        let path_str = path.to_string_lossy().to_string();
+        let mut store = VaultStore::create(&path_str, password, Some(fast_kdf())).unwrap();
+        configure(&mut store);
+        store.save().unwrap();
+        std::fs::read(path).unwrap()
     }
 
     fn current_dir_lock() -> &'static Mutex<()> {
@@ -2471,6 +3479,277 @@ mod tests {
         );
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn ssh_host_crud_persists_managed_hosts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("config");
+        std::fs::write(
+            &cfg,
+            "Host prod\n  HostName prod.example.com\n  User deploy\n  Port 2201\n",
+        )
+        .unwrap();
+        let vp = tmp.path().join("ssh-hosts.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let (router, state, _) = build_app_with_ssh(&vps, cfg.to_string_lossy().as_ref());
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let req = authed_request(
+            "POST",
+            "/api/ssh/hosts",
+            &token,
+            Some(r#"{"alias":"stage","hostname":"stage.example.com","user":"deploy","port":2222}"#),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let req = authed_request("GET", "/api/ssh/hosts", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let hosts = json["hosts"].as_array().unwrap();
+        assert_eq!(hosts.len(), 2);
+        let stage = hosts.iter().find(|host| host["alias"] == "stage").unwrap();
+        assert_eq!(stage["source"], "web");
+        assert_eq!(stage["editable"], true);
+
+        let (router2, _, _) = build_app_with_ssh(&vps, cfg.to_string_lossy().as_ref());
+        let token2 = get_token(&router2, "testpass1234").await;
+        let req = authed_request("GET", "/api/ssh/hosts", &token2, None);
+        let resp = router2.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["hosts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|host| host["alias"] == "stage"));
+
+        let req = authed_request(
+            "PUT",
+            "/api/ssh/hosts/stage",
+            &token,
+            Some(
+                r#"{"alias":"stage-renamed","hostname":"stage2.example.com","user":"deploy","port":2205}"#,
+            ),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = authed_request("DELETE", "/api/ssh/hosts/stage-renamed", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = authed_request("GET", "/api/ssh/hosts", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["hosts"].as_array().unwrap().len(), 1);
+        assert_eq!(json["hosts"][0]["alias"], "prod");
+    }
+
+    #[tokio::test]
+    async fn ssh_host_create_rejects_duplicate_alias_from_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("config");
+        std::fs::write(
+            &cfg,
+            "Host prod\n  HostName prod.example.com\n  User deploy\n  Port 2201\n",
+        )
+        .unwrap();
+        let vp = tmp.path().join("ssh-dup.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let (router, state, _) = build_app_with_ssh(&vps, cfg.to_string_lossy().as_ref());
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+        let req = authed_request(
+            "POST",
+            "/api/ssh/hosts",
+            &token,
+            Some(r#"{"alias":"prod","hostname":"other.example.com","user":"deploy","port":22}"#),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn remote_preview_returns_metadata_without_values() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("config");
+        std::fs::write(
+            &cfg,
+            "Host prod\n  HostName prod.example.com\n  User deploy\n  Port 2201\n",
+        )
+        .unwrap();
+        let vp = tmp.path().join("preview.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let (router, state, remote) = build_app_with_ssh(&vps, cfg.to_string_lossy().as_ref());
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let remote_vault = tmp.path().join("remote-preview.vault.json");
+        *remote.download_bytes.lock().unwrap() =
+            Some(create_vault_bytes(&remote_vault, "remote-pass", |store| {
+                store
+                    .set("redis", "REDIS_URL", "redis://cache", "", &[])
+                    .unwrap();
+                store.create_app("worker", "worker", "").unwrap();
+                store.assign("worker", "redis", None).unwrap();
+            }));
+
+        let req = authed_request(
+            "POST",
+            "/api/ssh/remote-preview",
+            &token,
+            Some(
+                r#"{"host_alias":"prod","remote_path":"/srv/enva/remote.vault.json","remote_password":"remote-pass","reveal":false}"#,
+            ),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["secrets"].as_array().unwrap().len(), 1);
+        assert!(json["secrets"][0].get("value").is_none());
+        assert_eq!(json["apps"].as_array().unwrap().len(), 1);
+        assert_eq!(json["bindings"].as_array().unwrap().len(), 1);
+
+        let calls = remote.calls.lock().unwrap().clone();
+        assert_eq!(calls.last().unwrap().action, "download");
+        assert!(calls.last().unwrap().used_password_auth);
+    }
+
+    #[tokio::test]
+    async fn remote_preview_wrong_password_returns_401() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("config");
+        std::fs::write(
+            &cfg,
+            "Host prod\n  HostName prod.example.com\n  User deploy\n  Port 2201\n",
+        )
+        .unwrap();
+        let vp = tmp.path().join("preview-fail.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let (router, state, remote) = build_app_with_ssh(&vps, cfg.to_string_lossy().as_ref());
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let remote_vault = tmp.path().join("remote-preview-fail.vault.json");
+        *remote.download_bytes.lock().unwrap() =
+            Some(create_vault_bytes(&remote_vault, "correct-pass", |store| {
+                store
+                    .set("redis", "REDIS_URL", "redis://cache", "", &[])
+                    .unwrap();
+            }));
+
+        let req = authed_request(
+            "POST",
+            "/api/ssh/remote-preview",
+            &token,
+            Some(
+                r#"{"host_alias":"prod","remote_path":"/srv/enva/remote.vault.json","remote_password":"wrong-pass","reveal":false}"#,
+            ),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn selective_sync_is_idempotent_for_selected_app_bindings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("config");
+        std::fs::write(
+            &cfg,
+            "Host prod\n  HostName prod.example.com\n  User deploy\n  Port 2201\n",
+        )
+        .unwrap();
+        let vp = tmp.path().join("selective-sync.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let mut local_store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        local_store
+            .set("db", "DB_URL", "postgres://db", "", &[])
+            .unwrap();
+        local_store.save().unwrap();
+
+        let (router, _, remote) = build_app_with_ssh(&vps, cfg.to_string_lossy().as_ref());
+        let token = get_token(&router, "testpass1234").await;
+        let remote_vault = tmp.path().join("remote-selective-sync.vault.json");
+        *remote.download_bytes.lock().unwrap() =
+            Some(create_vault_bytes(&remote_vault, "testpass1234", |store| {
+                store
+                    .set("redis", "REDIS_URL", "redis://cache", "", &[])
+                    .unwrap();
+                store.create_app("worker", "worker", "").unwrap();
+                store.assign("worker", "redis", None).unwrap();
+            }));
+
+        let body = r#"{"host_alias":"prod","remote_path":"/srv/enva/remote.vault.json","selected_apps":["worker"],"include_bindings":true}"#;
+        let req = authed_request("POST", "/api/ssh/selective-sync", &token, Some(body));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = authed_request("POST", "/api/ssh/selective-sync", &token, Some(body));
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let loaded = VaultStore::load(&vps, "testpass1234").unwrap();
+        assert_eq!(loaded.list(None).unwrap().len(), 2);
+        assert_eq!(loaded.list_apps().len(), 1);
+        assert_eq!(loaded.get("redis").unwrap(), "redis://cache");
+        assert_eq!(loaded.get_app_secret_bindings("worker").unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn selective_deploy_uploads_merged_remote_vault() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("config");
+        std::fs::write(
+            &cfg,
+            "Host prod\n  HostName prod.example.com\n  User deploy\n  Port 2201\n",
+        )
+        .unwrap();
+        let vp = tmp.path().join("selective-deploy.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let mut local_store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        local_store
+            .set("redis", "REDIS_URL", "redis://cache", "", &[])
+            .unwrap();
+        local_store.create_app("worker", "worker", "").unwrap();
+        local_store.assign("worker", "redis", None).unwrap();
+        local_store.save().unwrap();
+
+        let (router, _, remote) = build_app_with_ssh(&vps, cfg.to_string_lossy().as_ref());
+        let token = get_token(&router, "testpass1234").await;
+        let remote_vault = tmp.path().join("remote-selective-deploy.vault.json");
+        *remote.download_bytes.lock().unwrap() =
+            Some(create_vault_bytes(&remote_vault, "testpass1234", |store| {
+                store.set("db", "DB_URL", "postgres://db", "", &[]).unwrap();
+            }));
+
+        let req = authed_request(
+            "POST",
+            "/api/ssh/selective-deploy",
+            &token,
+            Some(
+                r#"{"host_alias":"prod","remote_path":"/srv/enva/remote.vault.json","selected_apps":["worker"],"include_bindings":true}"#,
+            ),
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let uploaded = remote
+            .uploaded_payloads
+            .lock()
+            .unwrap()
+            .last()
+            .cloned()
+            .unwrap();
+        let merged = VaultStore::load_from_bytes(&uploaded, "testpass1234").unwrap();
+        assert_eq!(merged.list(None).unwrap().len(), 2);
+        assert_eq!(merged.get("db").unwrap(), "postgres://db");
+        assert_eq!(merged.get("redis").unwrap(), "redis://cache");
+        assert_eq!(merged.list_apps().len(), 1);
+        assert_eq!(merged.list_apps()[0].name, "worker");
     }
 
     #[tokio::test]

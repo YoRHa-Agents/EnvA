@@ -110,4 +110,17 @@ mod tests {
     fn assets_contains_icon_svg() {
         assert!(Assets::get("icon.svg").is_some());
     }
+
+    #[test]
+    fn index_html_uses_current_port_as_default() {
+        let index =
+            String::from_utf8(Assets::get("index.html").unwrap().data.into_owned()).unwrap();
+        assert!(index.contains("function currentPort()"));
+        assert!(index.contains("function defaultPortValue()"));
+        assert!(index.contains("function activePortValue()"));
+        assert!(index.contains("return currentPort() || storedPort() || '8080';"));
+        assert!(index.contains("const port = activePortValue();"));
+        assert!(index.contains("ptEl.placeholder = defaultPortValue();"));
+        assert!(index.contains("settingsPortEl.placeholder = defaultPortValue();"));
+    }
 }

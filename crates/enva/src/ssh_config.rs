@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 use std::fs;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::paths;
 
 pub const DEFAULT_SSH_CONFIG_PATH: &str = "~/.ssh/config";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SshHostConfig {
     pub alias: String,
     pub hostname: String,

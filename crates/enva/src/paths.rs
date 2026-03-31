@@ -43,7 +43,7 @@ pub(crate) fn resolve_required_path_from(
         return Err(PathResolutionError::Empty { kind });
     }
 
-    let expanded = shellexpand::tilde(trimmed).into_owned();
+    let expanded = normalize_known_path_aliases(shellexpand::tilde(trimmed).as_ref());
     let path = Path::new(&expanded);
     let resolved = if path.is_absolute() {
         path.to_path_buf()
@@ -52,6 +52,23 @@ pub(crate) fn resolve_required_path_from(
     };
 
     Ok(resolved.to_string_lossy().into_owned())
+}
+
+fn normalize_known_path_aliases(raw: &str) -> String {
+    if let Some(rest) = raw.strip_prefix("/User/") {
+        if let Some(home) = dirs::home_dir() {
+            if let Some(user) = home.file_name().and_then(|value| value.to_str()) {
+                let home_str = home.to_string_lossy();
+                if home_str.starts_with("/Users/")
+                    && (rest == user || rest.starts_with(&format!("{user}/")))
+                {
+                    return format!("/Users/{rest}");
+                }
+            }
+        }
+    }
+
+    raw.to_owned()
 }
 
 fn resolve_required_path(raw: &str, kind: &'static str) -> Result<String, PathResolutionError> {
@@ -116,5 +133,23 @@ mod tests {
             resolve_required_path_from("/opt/enva/app", Path::new("/tmp/enva"), "application")
                 .unwrap();
         assert_eq!(resolved, PathBuf::from("/opt/enva/app").to_string_lossy());
+    }
+
+    #[test]
+    fn resolve_required_path_from_normalizes_common_user_prefix_typo() {
+        let _lock = process_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let original_home = std::env::var_os("HOME");
+        std::env::set_var("HOME", "/Users/alice");
+
+        let resolved =
+            resolve_required_path_from("/User/alice/.enva/vault.json", Path::new("/tmp"), "vault")
+                .unwrap();
+
+        match original_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+
+        assert_eq!(resolved, "/Users/alice/.enva/vault.json");
     }
 }

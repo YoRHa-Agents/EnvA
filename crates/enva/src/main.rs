@@ -1,7 +1,9 @@
 mod config;
 mod paths;
 mod ssh_config;
+mod ssh_hosts;
 mod sync;
+mod update;
 mod vault;
 mod web;
 
@@ -39,7 +41,7 @@ struct Cli {
     env: Option<String>,
 
     /// Vault password (prefer --password-stdin or ENVA_PASSWORD for scripts)
-    #[arg(long, short = 'p', global = true, env = "ENVA_PASSWORD")]
+    #[arg(long, short = 'P', global = true, env = "ENVA_PASSWORD")]
     password: Option<String>,
 
     /// Read password from stdin
@@ -62,10 +64,19 @@ enum Commands {
         #[command(subcommand)]
         cmd: VaultCommands,
     },
+    /// Update the installed enva binary from GitHub Releases
+    Update {
+        /// Target release tag (defaults to the latest published release)
+        #[arg(long)]
+        version: Option<String>,
+        /// Force reinstall the current version or allow downgrades
+        #[arg(long)]
+        force: bool,
+    },
     /// Start the web configuration UI
     Serve {
         /// Port to listen on
-        #[arg(long, default_value = "8080")]
+        #[arg(short = 'p', long, default_value = "8080")]
         port: u16,
         /// Host to bind to
         #[arg(long, default_value = "127.0.0.1")]
@@ -212,8 +223,17 @@ enum VaultCommands {
         #[arg(long, env = "ENVA_SSH_PASSPHRASE")]
         ssh_passphrase: Option<String>,
         /// Replace the local vault if it already exists
-        #[arg(long)]
+        #[arg(long, conflicts_with = "merge")]
         overwrite: bool,
+        /// Merge remote vault into local instead of replacing
+        #[arg(long)]
+        merge: bool,
+        /// Auto-resolve all conflicts by keeping local values (requires --merge)
+        #[arg(long, requires = "merge", conflicts_with = "prefer_remote")]
+        prefer_local: bool,
+        /// Auto-resolve all conflicts by keeping remote values (requires --merge)
+        #[arg(long, requires = "merge", conflicts_with = "prefer_local")]
+        prefer_remote: bool,
     },
     /// Verify installation integrity
     SelfTest,
@@ -232,7 +252,9 @@ fn main() {
         if !msg.is_empty() {
             eprintln!("Error: {msg}");
         }
-        let code = if msg.contains("authentication failed")
+        let code = if let Some(update_error) = e.downcast_ref::<update::UpdateError>() {
+            update_error.exit_code()
+        } else if msg.contains("authentication failed")
             || msg.contains("HMAC verification failed")
             || msg.contains("missing HMAC")
             || msg.contains("password")
@@ -305,10 +327,97 @@ fn ssh_auth_options(
     }
 }
 
+fn build_merge_resolutions(
+    diff: &vault::VaultDiff,
+    prefer_local: bool,
+    prefer_remote: bool,
+) -> Result<Vec<vault::ConflictResolution>, Box<dyn std::error::Error>> {
+    use vault::{ConflictResolution, DiffStatus};
+
+    let conflicts: Vec<_> = diff
+        .secrets
+        .iter()
+        .filter(|s| s.status == DiffStatus::Modified)
+        .map(|s| ("secret", s.alias.as_str(), s.local_key.as_deref()))
+        .chain(
+            diff.apps
+                .iter()
+                .filter(|a| a.status == DiffStatus::Modified)
+                .map(|a| ("app", a.name.as_str(), None)),
+        )
+        .collect();
+
+    if conflicts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if prefer_local {
+        return Ok(conflicts
+            .into_iter()
+            .map(|(_, key, _)| ConflictResolution::KeepLocal {
+                key: key.to_owned(),
+            })
+            .collect());
+    }
+    if prefer_remote {
+        return Ok(conflicts
+            .into_iter()
+            .map(|(_, key, _)| ConflictResolution::KeepRemote {
+                key: key.to_owned(),
+            })
+            .collect());
+    }
+
+    let mut resolutions = Vec::with_capacity(conflicts.len());
+    let stdin = std::io::stdin();
+    for (kind, name, env_key) in &conflicts {
+        let key_info = env_key.map(|k| format!(" (key: {k})")).unwrap_or_default();
+        eprintln!("Conflict in {kind} '{name}'{key_info} — [l]ocal / [r]emote / [b]oth? ",);
+        let mut input = String::new();
+        stdin.read_line(&mut input)?;
+        let resolution = match input.trim().to_lowercase().as_str() {
+            "r" | "remote" => ConflictResolution::KeepRemote {
+                key: name.to_string(),
+            },
+            "b" | "both" => ConflictResolution::KeepBoth {
+                key: name.to_string(),
+            },
+            _ => ConflictResolution::KeepLocal {
+                key: name.to_string(),
+            },
+        };
+        resolutions.push(resolution);
+    }
+    Ok(resolutions)
+}
+
+fn run_update_command(
+    cli: &Cli,
+    version: Option<&str>,
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match update::update_binary(version, force)? {
+        update::UpdateOutcome::Updated(result) => {
+            if !cli.quiet {
+                println!("Updated enva to {}", result.updated_version);
+            }
+        }
+        update::UpdateOutcome::AlreadyUpToDate { current_version } => {
+            if !cli.quiet {
+                println!("Already up to date ({current_version})");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!(command = ?cli.command, "dispatching command");
     match &cli.command {
         None => run_serve(&cli, "127.0.0.1", 8080),
+        Some(Commands::Update { version, force }) => {
+            run_update_command(&cli, version.as_deref(), *force)
+        }
         Some(Commands::Serve { port, host }) => run_serve(&cli, host, *port),
         Some(Commands::Vault { cmd }) => run_vault_command(&cli, cmd),
         Some(Commands::External(args)) => run_app(&cli, args),
@@ -661,23 +770,46 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             ssh_key,
             ssh_passphrase,
             overwrite,
+            merge,
+            prefer_local,
+            prefer_remote,
         } => {
             let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
-            sync::sync_from_remote(
-                &vp,
-                &pw,
-                from,
-                *ssh_port,
-                *overwrite,
-                ssh_auth_options(
-                    ssh_password.as_ref(),
-                    ssh_key.as_ref(),
-                    ssh_passphrase.as_ref(),
-                ),
-            )?;
-            if !cli.quiet {
-                println!("Synced vault from {from}");
+            let auth = ssh_auth_options(
+                ssh_password.as_ref(),
+                ssh_key.as_ref(),
+                ssh_passphrase.as_ref(),
+            );
+            if *merge {
+                let remote_bytes = sync::download_remote_vault(from, *ssh_port, auth)?;
+                let mut local_store =
+                    vault::VaultStore::load(&vp, &pw).map_err(|e| e.to_string())?;
+                let remote_store = vault::VaultStore::load_from_bytes(&remote_bytes, &pw)
+                    .map_err(|e| e.to_string())?;
+                let diff = local_store.diff(&remote_store);
+
+                if diff.secrets.is_empty() && diff.apps.is_empty() {
+                    if !cli.quiet {
+                        println!("Vaults are identical — nothing to merge.");
+                    }
+                    return Ok(());
+                }
+
+                let resolutions = build_merge_resolutions(&diff, *prefer_local, *prefer_remote)?;
+
+                local_store
+                    .merge_from(&remote_store, &resolutions, None, None)
+                    .map_err(|e| e.to_string())?;
+                local_store.save().map_err(|e| e.to_string())?;
+                if !cli.quiet {
+                    println!("Merged vault from {from}");
+                }
+            } else {
+                sync::sync_from_remote(&vp, &pw, from, *ssh_port, *overwrite, auth)?;
+                if !cli.quiet {
+                    println!("Synced vault from {from}");
+                }
             }
         }
         VaultCommands::SelfTest => {
@@ -795,5 +927,37 @@ mod tests {
             resolved,
             tmp.path().join("./bin/from-config").to_string_lossy()
         );
+    }
+
+    #[test]
+    fn serve_short_port_flag_is_accepted() {
+        let cli = Cli::try_parse_from(["enva", "serve", "-p", "9091"]).unwrap();
+        assert!(cli.password.is_none());
+        match cli.command.as_ref() {
+            Some(Commands::Serve { port, host }) => {
+                assert_eq!(*port, 9091);
+                assert_eq!(host, "127.0.0.1");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn password_short_flag_uses_uppercase_p() {
+        let cli = Cli::try_parse_from(["enva", "-P", "secret", "vault", "list"]).unwrap();
+        assert_eq!(cli.password.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn update_command_parses_version_and_force() {
+        let cli =
+            Cli::try_parse_from(["enva", "update", "--version", "v0.3.0", "--force"]).unwrap();
+        match cli.command.as_ref() {
+            Some(Commands::Update { version, force }) => {
+                assert_eq!(version.as_deref(), Some("v0.3.0"));
+                assert!(*force);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 }

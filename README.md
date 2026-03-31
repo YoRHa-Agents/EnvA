@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.2.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.2.0-6366f1" alt="Changelog"></a>
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.3.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.3.0-6366f1" alt="Changelog"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="MIT license"></a>
 </p>
 
@@ -38,19 +38,22 @@ around by hand.
   HMAC-SHA256 integrity checks.
 - App-aware secret injection so each application receives only the aliases assigned to it.
 - Built-in web UI for browsing, editing, renaming, assigning, importing, and exporting secrets.
-- Web SSH management can read `~/.ssh/config`, refresh the discovered host list, and run
-  vault `deploy` / `sync-from` actions without leaving the UI.
+- Built-in self-update via `enva update` so installed binaries can track GitHub Releases
+  without rerunning the install script.
+- Web SSH management can read `~/.ssh/config`, persist additional web-managed hosts under
+  `~/.enva/ssh_hosts.json`, preview remote vault contents, and run full or selective
+  `deploy` / `sync-from` actions without leaving the UI.
 - Cross-platform release binaries plus `build.sh` for parallel multi-target packaging
   under `release/`.
 
-## New In v0.2.0
+## New In v0.3.0
 
-- The web UI can now discover SSH hosts from `~/.ssh/config`, refresh the list on demand,
-  and run vault `deploy` / `sync-from` actions from the browser.
-- Secrets and applications now carry immutable internal ids so alias and app-name renames
-  preserve bindings, overrides, and runtime env injection behavior.
-- Regression coverage was expanded across vault migration, rename flows, web routes, and
-  CLI injection scenarios to harden the release.
+- `enva update [--version <tag>] [--force]` fetches the matching binary from GitHub Releases,
+  verifies its size / SHA256 digest, and atomically replaces the current executable.
+- The web `Remote` modal can preview remote vault metadata, select specific secrets/apps for
+  sync or deploy, and manage additional SSH hosts stored in `~/.enva/ssh_hosts.json`.
+- The web settings modal can check whether a newer GitHub Release is available for the current
+  platform and point operators to the CLI update flow.
 
 ## Demo Snapshots
 
@@ -126,6 +129,7 @@ Generate one or more release artifacts under `release/`:
 
 ```bash
 enva vault self-test
+enva update --help
 ```
 
 ## Quick Start
@@ -159,10 +163,25 @@ enva serve --port 3000 --host 0.0.0.0   # custom bind
 ```
 
 The web UI now includes a `Remote` flow that reads SSH hosts from `~/.ssh/config`,
-supports `Host`, `HostName`, `User`, `Port`, and `IdentityFile`, and exposes only
-vault `deploy` / `sync-from` actions plus an explicit refresh button. When an
-`IdentityFile` is present it is reused automatically; otherwise the web flow falls
-back to the local SSH agent.
+merges them with editable web-managed hosts stored in `~/.enva/ssh_hosts.json`,
+supports remote vault preview, selective sync/deploy, full diff/merge review, and
+legacy whole-vault `deploy` / `sync-from` actions. When an `IdentityFile` is
+present it is reused automatically; otherwise the web flow falls back to password
+auth for preview or the local SSH agent for full sync/deploy operations.
+
+### Self Update
+
+Use the built-in updater to fetch the latest compatible release asset from GitHub:
+
+```bash
+enva update
+enva update --version v0.3.0
+enva update --force
+```
+
+The updater matches the current platform against the published release assets
+(`enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`), verifies the
+downloaded binary, and atomically replaces the installed executable in place.
 
 ### App Injection
 

@@ -132,6 +132,60 @@ pub struct AppSecretBinding {
     pub injected_as: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiffStatus {
+    OnlyLocal,
+    OnlyRemote,
+    Modified,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretDiffItem {
+    pub alias: String,
+    pub status: DiffStatus,
+    pub local_key: Option<String>,
+    pub remote_key: Option<String>,
+    pub local_updated_at: Option<String>,
+    pub remote_updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppDiffItem {
+    pub name: String,
+    pub status: DiffStatus,
+    pub local_secret_count: Option<usize>,
+    pub remote_secret_count: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultDiff {
+    pub secrets: Vec<SecretDiffItem>,
+    pub apps: Vec<AppDiffItem>,
+    pub has_conflicts: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::enum_variant_names)]
+pub enum ConflictResolution {
+    KeepLocal { key: String },
+    KeepRemote { key: String },
+    KeepBoth { key: String },
+}
+
+pub struct AppSecretBindingInfo {
+    pub app_name: String,
+    pub secret_id: String,
+    pub alias: String,
+    pub key: String,
+    pub injected_as: String,
+}
+
+pub struct VaultMetadataSnapshot {
+    pub secrets: Vec<SecretInfo>,
+    pub apps: Vec<AppInfo>,
+    pub bindings: Vec<AppSecretBindingInfo>,
+}
+
 pub struct VaultStore {
     path: String,
     data: VaultFile,
@@ -370,7 +424,17 @@ impl VaultStore {
 
     pub fn load(path: &str, password: &str) -> Result<Self, VaultError> {
         let raw = fs::read_to_string(path)?;
-        let data: VaultFile = serde_json::from_str(&raw)
+        Self::load_from_raw(&raw, path, password)
+    }
+
+    pub fn load_from_bytes(bytes: &[u8], password: &str) -> Result<Self, VaultError> {
+        let raw = std::str::from_utf8(bytes)
+            .map_err(|e| VaultError::Corrupted(format!("invalid UTF-8: {e}")))?;
+        Self::load_from_raw(raw, "<memory>", password)
+    }
+
+    fn load_from_raw(raw: &str, path: &str, password: &str) -> Result<Self, VaultError> {
+        let data: VaultFile = serde_json::from_str(raw)
             .map_err(|e| VaultError::Corrupted(format!("invalid JSON: {e}")))?;
 
         if !data._meta.format_version.starts_with('2') {
@@ -427,18 +491,11 @@ impl VaultStore {
     }
 
     pub fn save(&mut self) -> Result<(), VaultError> {
-        self.migrate_in_place()?;
-        let canonical = self.canonical_data();
-        let mac = vault_crypto::compute_hmac(&self.hmac_key, &canonical)
-            .map_err(|e| VaultError::Crypto(e.to_string()))?;
-        self.data._meta.hmac = B64.encode(&mac);
-        self.data._meta.updated_at = now_iso();
-
-        let content = serde_json::to_string_pretty(&self.data)?;
+        let content = self.export_bytes()?;
         let dir = Path::new(&self.path).parent().unwrap_or(Path::new("."));
         fs::create_dir_all(dir)?;
         let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
-        tmp.write_all(content.as_bytes())?;
+        tmp.write_all(&content)?;
         tmp.persist(&self.path)
             .map_err(|e| VaultError::Io(e.error))?;
         Ok(())
@@ -830,6 +887,129 @@ impl VaultStore {
             .collect()
     }
 
+    pub fn list_all_metadata(&self) -> Result<VaultMetadataSnapshot, VaultError> {
+        let secrets: Vec<SecretInfo> = self.list(None)?;
+        let apps = self.list_apps();
+        let mut bindings = Vec::new();
+        for app_info in &apps {
+            if let Ok(app_bindings) = self.get_app_secret_bindings(&app_info.name) {
+                for binding in app_bindings {
+                    bindings.push(AppSecretBindingInfo {
+                        app_name: app_info.name.clone(),
+                        secret_id: binding.secret_id,
+                        alias: binding.alias,
+                        key: binding.key,
+                        injected_as: binding.injected_as,
+                    });
+                }
+            }
+        }
+        Ok(VaultMetadataSnapshot {
+            secrets,
+            apps,
+            bindings,
+        })
+    }
+
+    pub fn export_bytes(&mut self) -> Result<Vec<u8>, VaultError> {
+        self.migrate_in_place()?;
+        let canonical = self.canonical_data();
+        let mac = vault_crypto::compute_hmac(&self.hmac_key, &canonical)
+            .map_err(|e| VaultError::Crypto(e.to_string()))?;
+        self.data._meta.hmac = B64.encode(&mac);
+        self.data._meta.updated_at = now_iso();
+        serde_json::to_vec_pretty(&self.data).map_err(Into::into)
+    }
+
+    pub fn clone_selected(
+        &self,
+        selected_secret_aliases: &HashSet<String>,
+        selected_app_names: &HashSet<String>,
+        include_bindings: bool,
+    ) -> Result<Self, VaultError> {
+        let id_to_alias = self.secret_id_to_alias_map();
+        let mut included_aliases = selected_secret_aliases.clone();
+
+        for app_name in selected_app_names {
+            let app = self
+                .data
+                .apps
+                .get(app_name)
+                .ok_or_else(|| VaultError::AppNotFound(app_name.clone()))?;
+            if include_bindings {
+                for secret_ref in &app.secrets {
+                    let alias = self
+                        .resolve_alias_for_secret_ref(secret_ref, &id_to_alias)
+                        .ok_or_else(|| {
+                            VaultError::Corrupted(format!(
+                                "app '{app_name}' references unknown secret '{secret_ref}'",
+                            ))
+                        })?;
+                    included_aliases.insert(alias);
+                }
+                for secret_ref in app.overrides.keys() {
+                    let alias = self
+                        .resolve_alias_for_secret_ref(secret_ref, &id_to_alias)
+                        .ok_or_else(|| {
+                            VaultError::Corrupted(format!(
+                                "app '{app_name}' references unknown secret '{secret_ref}'",
+                            ))
+                        })?;
+                    included_aliases.insert(alias);
+                }
+            }
+        }
+
+        let mut secrets = BTreeMap::new();
+        for alias in &included_aliases {
+            let entry = self
+                .data
+                .secrets
+                .get(alias)
+                .ok_or_else(|| VaultError::AliasNotFound(alias.clone()))?;
+            secrets.insert(alias.clone(), entry.clone());
+        }
+
+        let mut apps = BTreeMap::new();
+        for app_name in selected_app_names {
+            let app = self
+                .data
+                .apps
+                .get(app_name)
+                .ok_or_else(|| VaultError::AppNotFound(app_name.clone()))?;
+            let mut cloned = app.clone();
+            if include_bindings {
+                cloned.secrets.retain(|secret_ref| {
+                    self.resolve_alias_for_secret_ref(secret_ref, &id_to_alias)
+                        .map(|alias| included_aliases.contains(&alias))
+                        .unwrap_or(false)
+                });
+                cloned.overrides.retain(|secret_ref, _| {
+                    self.resolve_alias_for_secret_ref(secret_ref, &id_to_alias)
+                        .map(|alias| included_aliases.contains(&alias))
+                        .unwrap_or(false)
+                });
+            } else {
+                cloned.secrets.clear();
+                cloned.overrides.clear();
+            }
+            apps.insert(app_name.clone(), cloned);
+        }
+
+        let mut subset = Self {
+            path: self.path.clone(),
+            data: VaultFile {
+                _meta: self.data._meta.clone(),
+                secrets,
+                apps,
+            },
+            enc_key: self.enc_key.clone(),
+            hmac_key: self.hmac_key.clone(),
+        };
+        subset.migrate_in_place()?;
+        Ok(subset)
+    }
+
     fn canonical_data(&self) -> Vec<u8> {
         let mut parts = Vec::new();
         parts.push(format!(
@@ -883,6 +1063,328 @@ impl VaultStore {
         parts.sort();
         parts.join("\n").into_bytes()
     }
+
+    pub fn diff(&self, other: &VaultStore) -> VaultDiff {
+        let mut secrets = Vec::new();
+
+        for (alias, local_entry) in &self.data.secrets {
+            if let Some(remote_entry) = other.data.secrets.get(alias) {
+                let local_val =
+                    vault_crypto::decrypt_value(&self.enc_key, &local_entry.value, alias).ok();
+                let remote_val =
+                    vault_crypto::decrypt_value(&other.enc_key, &remote_entry.value, alias).ok();
+
+                if local_entry.key != remote_entry.key
+                    || local_entry.description != remote_entry.description
+                    || local_entry.tags != remote_entry.tags
+                    || local_val != remote_val
+                {
+                    secrets.push(SecretDiffItem {
+                        alias: alias.clone(),
+                        status: DiffStatus::Modified,
+                        local_key: Some(local_entry.key.clone()),
+                        remote_key: Some(remote_entry.key.clone()),
+                        local_updated_at: Some(local_entry.updated_at.clone()),
+                        remote_updated_at: Some(remote_entry.updated_at.clone()),
+                    });
+                }
+            } else {
+                secrets.push(SecretDiffItem {
+                    alias: alias.clone(),
+                    status: DiffStatus::OnlyLocal,
+                    local_key: Some(local_entry.key.clone()),
+                    remote_key: None,
+                    local_updated_at: Some(local_entry.updated_at.clone()),
+                    remote_updated_at: None,
+                });
+            }
+        }
+
+        for (alias, remote_entry) in &other.data.secrets {
+            if !self.data.secrets.contains_key(alias) {
+                secrets.push(SecretDiffItem {
+                    alias: alias.clone(),
+                    status: DiffStatus::OnlyRemote,
+                    local_key: None,
+                    remote_key: Some(remote_entry.key.clone()),
+                    local_updated_at: None,
+                    remote_updated_at: Some(remote_entry.updated_at.clone()),
+                });
+            }
+        }
+
+        let mut apps = Vec::new();
+
+        for (name, local_app) in &self.data.apps {
+            if let Some(remote_app) = other.data.apps.get(name) {
+                if local_app.description != remote_app.description
+                    || local_app.app_path != remote_app.app_path
+                    || local_app.secrets != remote_app.secrets
+                    || local_app.overrides != remote_app.overrides
+                {
+                    apps.push(AppDiffItem {
+                        name: name.clone(),
+                        status: DiffStatus::Modified,
+                        local_secret_count: Some(local_app.secrets.len()),
+                        remote_secret_count: Some(remote_app.secrets.len()),
+                    });
+                }
+            } else {
+                apps.push(AppDiffItem {
+                    name: name.clone(),
+                    status: DiffStatus::OnlyLocal,
+                    local_secret_count: Some(local_app.secrets.len()),
+                    remote_secret_count: None,
+                });
+            }
+        }
+
+        for (name, remote_app) in &other.data.apps {
+            if !self.data.apps.contains_key(name) {
+                apps.push(AppDiffItem {
+                    name: name.clone(),
+                    status: DiffStatus::OnlyRemote,
+                    local_secret_count: None,
+                    remote_secret_count: Some(remote_app.secrets.len()),
+                });
+            }
+        }
+
+        let has_conflicts = secrets.iter().any(|s| s.status == DiffStatus::Modified)
+            || apps.iter().any(|a| a.status == DiffStatus::Modified);
+
+        VaultDiff {
+            secrets,
+            apps,
+            has_conflicts,
+        }
+    }
+
+    pub fn merge_from(
+        &mut self,
+        other: &VaultStore,
+        resolutions: &[ConflictResolution],
+        selected_secret_aliases: Option<&HashSet<String>>,
+        selected_app_names: Option<&HashSet<String>>,
+    ) -> Result<(), VaultError> {
+        let diff = self.diff(other);
+
+        let resolution_map: BTreeMap<&str, &ConflictResolution> = resolutions
+            .iter()
+            .map(|r| {
+                let key = match r {
+                    ConflictResolution::KeepLocal { key }
+                    | ConflictResolution::KeepRemote { key }
+                    | ConflictResolution::KeepBoth { key } => key.as_str(),
+                };
+                (key, r)
+            })
+            .collect();
+
+        for item in &diff.secrets {
+            let alias = &item.alias;
+            if !matches_selection(selected_secret_aliases, alias) {
+                continue;
+            }
+            match item.status {
+                DiffStatus::OnlyRemote => {
+                    let remote_entry = other.data.secrets.get(alias.as_str()).ok_or_else(|| {
+                        VaultError::Corrupted(format!(
+                            "remote secret alias '{alias}' disappeared during merge",
+                        ))
+                    })?;
+                    let plaintext =
+                        vault_crypto::decrypt_value(&other.enc_key, &remote_entry.value, alias)
+                            .map_err(|e| VaultError::Crypto(e.to_string()))?;
+                    let encrypted = vault_crypto::encrypt_value(&self.enc_key, &plaintext, alias)
+                        .map_err(|e| VaultError::Crypto(e.to_string()))?;
+                    self.data.secrets.insert(
+                        alias.clone(),
+                        SecretEntry {
+                            id: remote_entry.id.clone(),
+                            key: remote_entry.key.clone(),
+                            value: encrypted,
+                            description: remote_entry.description.clone(),
+                            tags: remote_entry.tags.clone(),
+                            created_at: remote_entry.created_at.clone(),
+                            updated_at: remote_entry.updated_at.clone(),
+                        },
+                    );
+                }
+                DiffStatus::OnlyLocal => {}
+                DiffStatus::Modified => {
+                    let resolution = resolution_map.get(alias.as_str()).ok_or_else(|| {
+                        VaultError::Corrupted(format!(
+                            "missing resolution for conflicting secret '{alias}'",
+                        ))
+                    })?;
+                    match resolution {
+                        ConflictResolution::KeepLocal { .. } => {}
+                        ConflictResolution::KeepRemote { .. } => {
+                            let remote_entry =
+                                other.data.secrets.get(alias.as_str()).ok_or_else(|| {
+                                    VaultError::Corrupted(format!(
+                                        "remote secret '{alias}' missing",
+                                    ))
+                                })?;
+                            let plaintext = vault_crypto::decrypt_value(
+                                &other.enc_key,
+                                &remote_entry.value,
+                                alias,
+                            )
+                            .map_err(|e| VaultError::Crypto(e.to_string()))?;
+                            let encrypted =
+                                vault_crypto::encrypt_value(&self.enc_key, &plaintext, alias)
+                                    .map_err(|e| VaultError::Crypto(e.to_string()))?;
+                            self.data.secrets.insert(
+                                alias.clone(),
+                                SecretEntry {
+                                    id: remote_entry.id.clone(),
+                                    key: remote_entry.key.clone(),
+                                    value: encrypted,
+                                    description: remote_entry.description.clone(),
+                                    tags: remote_entry.tags.clone(),
+                                    created_at: remote_entry.created_at.clone(),
+                                    updated_at: remote_entry.updated_at.clone(),
+                                },
+                            );
+                        }
+                        ConflictResolution::KeepBoth { .. } => {
+                            let remote_entry =
+                                other.data.secrets.get(alias.as_str()).ok_or_else(|| {
+                                    VaultError::Corrupted(format!(
+                                        "remote secret '{alias}' missing",
+                                    ))
+                                })?;
+                            let plaintext = vault_crypto::decrypt_value(
+                                &other.enc_key,
+                                &remote_entry.value,
+                                alias,
+                            )
+                            .map_err(|e| VaultError::Crypto(e.to_string()))?;
+                            let new_alias = find_unique_alias(&self.data.secrets, alias, "-remote");
+                            let encrypted =
+                                vault_crypto::encrypt_value(&self.enc_key, &plaintext, &new_alias)
+                                    .map_err(|e| VaultError::Crypto(e.to_string()))?;
+                            self.data.secrets.insert(
+                                new_alias,
+                                SecretEntry {
+                                    id: self.next_secret_id(),
+                                    key: remote_entry.key.clone(),
+                                    value: encrypted,
+                                    description: remote_entry.description.clone(),
+                                    tags: remote_entry.tags.clone(),
+                                    created_at: remote_entry.created_at.clone(),
+                                    updated_at: now_iso(),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        for item in &diff.apps {
+            let name = &item.name;
+            if !matches_selection(selected_app_names, name) {
+                continue;
+            }
+            match item.status {
+                DiffStatus::OnlyRemote => {
+                    if let Some(remote_app) = other.data.apps.get(name.as_str()) {
+                        self.data.apps.insert(name.clone(), remote_app.clone());
+                    }
+                }
+                DiffStatus::OnlyLocal => {}
+                DiffStatus::Modified => {
+                    let resolution = resolution_map.get(name.as_str()).ok_or_else(|| {
+                        VaultError::Corrupted(format!(
+                            "missing resolution for conflicting app '{name}'",
+                        ))
+                    })?;
+                    match resolution {
+                        ConflictResolution::KeepLocal { .. } => {}
+                        ConflictResolution::KeepRemote { .. } => {
+                            if let Some(remote_app) = other.data.apps.get(name.as_str()) {
+                                self.data.apps.insert(name.clone(), remote_app.clone());
+                            }
+                        }
+                        ConflictResolution::KeepBoth { .. } => {
+                            if let Some(remote_app) = other.data.apps.get(name.as_str()) {
+                                let new_name =
+                                    find_unique_app_name(&self.data.apps, name, "-remote");
+                                let mut cloned = remote_app.clone();
+                                cloned.id = self.next_app_id();
+                                self.data.apps.insert(new_name, cloned);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn secret_id_to_alias_map(&self) -> BTreeMap<String, String> {
+        self.data
+            .secrets
+            .iter()
+            .filter_map(|(alias, entry)| {
+                if entry.id.is_empty() {
+                    None
+                } else {
+                    Some((entry.id.clone(), alias.clone()))
+                }
+            })
+            .collect()
+    }
+
+    fn resolve_alias_for_secret_ref(
+        &self,
+        secret_ref: &str,
+        id_to_alias: &BTreeMap<String, String>,
+    ) -> Option<String> {
+        if self.data.secrets.contains_key(secret_ref) {
+            Some(secret_ref.to_string())
+        } else {
+            id_to_alias.get(secret_ref).cloned()
+        }
+    }
+}
+
+fn matches_selection(selection: Option<&HashSet<String>>, key: &str) -> bool {
+    selection
+        .map(|selected| selected.contains(key))
+        .unwrap_or(true)
+}
+
+fn find_unique_alias(existing: &BTreeMap<String, SecretEntry>, base: &str, suffix: &str) -> String {
+    let candidate = format!("{base}{suffix}");
+    if !existing.contains_key(&candidate) {
+        return candidate;
+    }
+    for i in 2.. {
+        let candidate = format!("{base}{suffix}-{i}");
+        if !existing.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+fn find_unique_app_name(existing: &BTreeMap<String, AppEntry>, base: &str, suffix: &str) -> String {
+    let candidate = format!("{base}{suffix}");
+    if !existing.contains_key(&candidate) {
+        return candidate;
+    }
+    for i in 2.. {
+        let candidate = format!("{base}{suffix}-{i}");
+        if !existing.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 #[cfg(test)]
@@ -1508,5 +2010,421 @@ mod tests {
         store.create_app("worker", "", "").unwrap();
         let result = store.rename_app("backend", "worker");
         assert!(matches!(result, Err(VaultError::AppExists(_))));
+    }
+
+    #[test]
+    fn diff_identical_vaults_produces_empty_diff() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        s1.create_app("backend", "desc", "").unwrap();
+        s1.assign("backend", "db", None).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let s1 = VaultStore::load(&p1, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        assert!(diff.secrets.is_empty());
+        assert!(diff.apps.is_empty());
+        assert!(!diff.has_conflicts);
+    }
+
+    #[test]
+    fn diff_detects_remote_only_additions() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.set("redis", "REDIS_URL", "redis://y", "", &[]).unwrap();
+        s2.save().unwrap();
+        let s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        assert_eq!(diff.secrets.len(), 1);
+        assert_eq!(diff.secrets[0].status, DiffStatus::OnlyRemote);
+        assert_eq!(diff.secrets[0].alias, "redis");
+        assert!(!diff.has_conflicts);
+    }
+
+    #[test]
+    fn diff_detects_local_only_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        s1.set("redis", "REDIS_URL", "redis://y", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.delete("redis").unwrap();
+        s2.save().unwrap();
+        let s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        assert_eq!(diff.secrets.len(), 1);
+        assert_eq!(diff.secrets[0].status, DiffStatus::OnlyLocal);
+        assert_eq!(diff.secrets[0].alias, "redis");
+        assert!(!diff.has_conflicts);
+    }
+
+    #[test]
+    fn diff_detects_modified_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.edit("db", None, Some("postgres://y"), None, None)
+            .unwrap();
+        s2.save().unwrap();
+        let s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        assert_eq!(diff.secrets.len(), 1);
+        assert_eq!(diff.secrets[0].status, DiffStatus::Modified);
+        assert!(diff.has_conflicts);
+    }
+
+    #[test]
+    fn diff_detects_mixed_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        s1.set("api", "API_KEY", "key123", "", &[]).unwrap();
+        s1.create_app("backend", "", "").unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.edit("db", None, Some("postgres://y"), None, None)
+            .unwrap();
+        s2.set("cache", "CACHE_URL", "memcached://z", "", &[])
+            .unwrap();
+        s2.save().unwrap();
+        let mut s1 = VaultStore::load(&p1, "pw").unwrap();
+        s1.delete("api").unwrap();
+        s1.save().unwrap();
+        let s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        let modified: Vec<_> = diff
+            .secrets
+            .iter()
+            .filter(|s| s.status == DiffStatus::Modified)
+            .collect();
+        let remote_only: Vec<_> = diff
+            .secrets
+            .iter()
+            .filter(|s| s.status == DiffStatus::OnlyRemote)
+            .collect();
+        let local_only: Vec<_> = diff
+            .secrets
+            .iter()
+            .filter(|s| s.status == DiffStatus::OnlyLocal)
+            .collect();
+        assert_eq!(modified.len(), 1);
+        assert_eq!(remote_only.len(), 2);
+        assert!(local_only.is_empty());
+        assert!(diff.has_conflicts);
+    }
+
+    #[test]
+    fn diff_detects_app_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        s1.create_app("backend", "desc", "").unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.create_app("worker", "worker svc", "").unwrap();
+        s2.assign("backend", "db", None).unwrap();
+        s2.save().unwrap();
+        let s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        let app_remote: Vec<_> = diff
+            .apps
+            .iter()
+            .filter(|a| a.status == DiffStatus::OnlyRemote)
+            .collect();
+        let app_modified: Vec<_> = diff
+            .apps
+            .iter()
+            .filter(|a| a.status == DiffStatus::Modified)
+            .collect();
+        assert_eq!(app_remote.len(), 1);
+        assert_eq!(app_remote[0].name, "worker");
+        assert_eq!(app_modified.len(), 1);
+    }
+
+    #[test]
+    fn load_from_bytes_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("v.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.set("s1", "K1", "val1", "", &[]).unwrap();
+        store.save().unwrap();
+        let bytes = std::fs::read(&ps).unwrap();
+        let loaded = VaultStore::load_from_bytes(&bytes, "pw").unwrap();
+        assert_eq!(loaded.get("s1").unwrap(), "val1");
+    }
+
+    #[test]
+    fn merge_auto_adds_remote_only_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.set("redis", "REDIS_URL", "redis://y", "", &[]).unwrap();
+        s2.save().unwrap();
+        let mut s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        s1.merge_from(&s2, &[], None, None).unwrap();
+        s1.save().unwrap();
+        let loaded = VaultStore::load(&p1, "pw").unwrap();
+        assert_eq!(loaded.get("db").unwrap(), "postgres://x");
+        assert_eq!(loaded.get("redis").unwrap(), "redis://y");
+        assert_eq!(loaded.list(None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn merge_keep_local_preserves_local_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "local-value", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.edit("db", None, Some("remote-value"), None, None)
+            .unwrap();
+        s2.save().unwrap();
+        let mut s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        let alias = diff.secrets[0].alias.clone();
+        s1.merge_from(
+            &s2,
+            &[ConflictResolution::KeepLocal { key: alias }],
+            None,
+            None,
+        )
+        .unwrap();
+        s1.save().unwrap();
+        let loaded = VaultStore::load(&p1, "pw").unwrap();
+        assert_eq!(loaded.get("db").unwrap(), "local-value");
+    }
+
+    #[test]
+    fn merge_keep_remote_replaces_local_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "local-value", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.edit("db", None, Some("remote-value"), None, None)
+            .unwrap();
+        s2.save().unwrap();
+        let mut s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        let alias = diff.secrets[0].alias.clone();
+        s1.merge_from(
+            &s2,
+            &[ConflictResolution::KeepRemote { key: alias }],
+            None,
+            None,
+        )
+        .unwrap();
+        s1.save().unwrap();
+        let loaded = VaultStore::load(&p1, "pw").unwrap();
+        assert_eq!(loaded.get("db").unwrap(), "remote-value");
+    }
+
+    #[test]
+    fn merge_keep_both_creates_suffixed_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "local-value", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.edit("db", None, Some("remote-value"), None, None)
+            .unwrap();
+        s2.save().unwrap();
+        let mut s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let diff = s1.diff(&s2);
+        let alias = diff.secrets[0].alias.clone();
+        s1.merge_from(
+            &s2,
+            &[ConflictResolution::KeepBoth { key: alias }],
+            None,
+            None,
+        )
+        .unwrap();
+        s1.save().unwrap();
+        let loaded = VaultStore::load(&p1, "pw").unwrap();
+        assert_eq!(loaded.get("db").unwrap(), "local-value");
+        assert_eq!(loaded.get("db-remote").unwrap(), "remote-value");
+        assert_eq!(loaded.list(None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn merge_missing_resolution_for_conflict_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.set("db", "DB_URL", "local-value", "", &[]).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.edit("db", None, Some("remote-value"), None, None)
+            .unwrap();
+        s2.save().unwrap();
+        let mut s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        let result = s1.merge_from(&s2, &[], None, None);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing resolution"));
+    }
+
+    #[test]
+    fn merge_auto_adds_remote_only_apps() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("v1.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("v2.json").to_str().unwrap().to_string();
+        let mut s1 = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        s1.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+        let mut s2 = VaultStore::load(&p2, "pw").unwrap();
+        s2.create_app("worker", "worker svc", "").unwrap();
+        s2.save().unwrap();
+        let mut s1 = VaultStore::load(&p1, "pw").unwrap();
+        let s2 = VaultStore::load(&p2, "pw").unwrap();
+        s1.merge_from(&s2, &[], None, None).unwrap();
+        s1.save().unwrap();
+        let loaded = VaultStore::load(&p1, "pw").unwrap();
+        assert_eq!(loaded.list_apps().len(), 1);
+        assert_eq!(loaded.list_apps()[0].name, "worker");
+    }
+
+    #[test]
+    fn merge_from_filters_selected_remote_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = dir.path().join("local.json").to_str().unwrap().to_string();
+        let p2 = dir.path().join("remote.json").to_str().unwrap().to_string();
+        let mut local = VaultStore::create(&p1, "pw", Some(fast_kdf())).unwrap();
+        local.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        local.save().unwrap();
+        std::fs::copy(&p1, &p2).unwrap();
+
+        let mut remote = VaultStore::load(&p2, "pw").unwrap();
+        remote
+            .set("redis", "REDIS_URL", "redis://y", "", &[])
+            .unwrap();
+        remote
+            .set("cache", "CACHE_URL", "memcached://z", "", &[])
+            .unwrap();
+        remote.save().unwrap();
+
+        let mut local = VaultStore::load(&p1, "pw").unwrap();
+        let remote = VaultStore::load(&p2, "pw").unwrap();
+        let selected = HashSet::from([String::from("redis")]);
+        local
+            .merge_from(&remote, &[], Some(&selected), None)
+            .unwrap();
+        local.save().unwrap();
+
+        let loaded = VaultStore::load(&p1, "pw").unwrap();
+        assert_eq!(loaded.get("redis").unwrap(), "redis://y");
+        assert!(matches!(
+            loaded.get("cache"),
+            Err(VaultError::AliasNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn clone_selected_with_bindings_includes_referenced_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&path, "pw", Some(fast_kdf())).unwrap();
+        store.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        store.create_app("backend", "desc", "").unwrap();
+        store.assign("backend", "db", None).unwrap();
+        store.save().unwrap();
+
+        let store = VaultStore::load(&path, "pw").unwrap();
+        let subset = store
+            .clone_selected(
+                &HashSet::new(),
+                &HashSet::from([String::from("backend")]),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(subset.list_apps().len(), 1);
+        assert_eq!(subset.list_apps()[0].name, "backend");
+        assert_eq!(subset.get("db").unwrap(), "postgres://x");
+        assert_eq!(subset.get_app_secret_bindings("backend").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn clone_selected_without_bindings_clears_app_assignments() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.json").to_str().unwrap().to_string();
+        let mut store = VaultStore::create(&path, "pw", Some(fast_kdf())).unwrap();
+        store.set("db", "DB_URL", "postgres://x", "", &[]).unwrap();
+        store.create_app("backend", "desc", "").unwrap();
+        store.assign("backend", "db", None).unwrap();
+        store.save().unwrap();
+
+        let store = VaultStore::load(&path, "pw").unwrap();
+        let subset = store
+            .clone_selected(
+                &HashSet::new(),
+                &HashSet::from([String::from("backend")]),
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(subset.list_apps().len(), 1);
+        assert_eq!(subset.list_apps()[0].name, "backend");
+        assert!(matches!(
+            subset.get("db"),
+            Err(VaultError::AliasNotFound(_))
+        ));
+        assert!(subset
+            .get_app_secret_bindings("backend")
+            .unwrap()
+            .is_empty());
     }
 }

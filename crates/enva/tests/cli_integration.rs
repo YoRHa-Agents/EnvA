@@ -4,7 +4,9 @@ use common::{
     create_test_vault, enva_cmd, rename_app_in_vault, rename_secret_in_vault, vault_assign,
     vault_assign_with_override, vault_set,
 };
+use mockito::Server;
 use predicates::prelude::*;
+use sha2::{Digest, Sha256};
 use std::fs;
 
 #[test]
@@ -16,6 +18,16 @@ fn help_shows_enva_branding() {
         .stdout(predicate::str::contains("Enva"))
         .stdout(predicate::str::contains("enva <APP>"))
         .stdout(predicate::str::contains("vault"));
+}
+
+#[test]
+fn serve_help_shows_short_port_flag() {
+    enva_cmd()
+        .args(["serve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("-p, --port"))
+        .stdout(predicate::str::contains("--host"));
 }
 
 #[test]
@@ -748,4 +760,244 @@ fn large_value_roundtrip() {
     )
     .unwrap();
     assert_eq!(got.trim(), large_val);
+}
+
+fn current_platform_asset() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => Some("enva-linux-x86_64"),
+        ("linux", "aarch64") => Some("enva-linux-aarch64"),
+        ("macos", "aarch64") => Some("enva-macos-aarch64"),
+        _ => None,
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let mut output = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        use std::fmt::Write as _;
+        let _ = write!(&mut output, "{byte:02x}");
+    }
+    output
+}
+
+fn write_test_binary(path: &std::path::Path) {
+    fs::write(path, b"old-binary").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+}
+
+#[test]
+fn update_help_shows_flags() {
+    enva_cmd()
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--version"))
+        .stdout(predicate::str::contains("--force"));
+}
+
+#[test]
+fn update_downloads_requested_release_into_override_binary_path() {
+    let Some(asset_name) = current_platform_asset() else {
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let binary_path = tmp.path().join("enva");
+    write_test_binary(&binary_path);
+
+    let mut server = Server::new();
+    let downloaded = b"new-binary-contents";
+    let digest = sha256_hex(downloaded);
+    let asset_path = format!("/downloads/{asset_name}");
+    let release_body = serde_json::json!({
+        "tag_name": "v0.4.0",
+        "html_url": format!("{}/releases/v0.4.0", server.url()),
+        "assets": [{
+            "name": asset_name,
+            "browser_download_url": format!("{}{}", server.url(), asset_path),
+            "size": downloaded.len(),
+            "digest": format!("sha256:{digest}")
+        }]
+    });
+
+    let _release = server
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.4.0")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(release_body.to_string())
+        .create();
+    let _asset = server
+        .mock("GET", asset_path.as_str())
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_body(downloaded.to_vec())
+        .create();
+
+    enva_cmd()
+        .args(["update", "--version", "v0.4.0"])
+        .env("ENVA_UPDATE_API_BASE", server.url())
+        .env("ENVA_UPDATE_BIN_PATH", &binary_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated enva to v0.4.0"));
+
+    assert_eq!(fs::read(&binary_path).unwrap(), downloaded);
+}
+
+#[test]
+fn update_reports_already_up_to_date_for_latest_release() {
+    let Some(asset_name) = current_platform_asset() else {
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let binary_path = tmp.path().join("enva");
+    write_test_binary(&binary_path);
+
+    let mut server = Server::new();
+    let downloaded = b"same-version-binary";
+    let digest = sha256_hex(downloaded);
+    let asset_path = format!("/downloads/{asset_name}");
+    let release_body = serde_json::json!({
+        "tag_name": "v0.3.0",
+        "html_url": format!("{}/releases/v0.3.0", server.url()),
+        "assets": [{
+            "name": asset_name,
+            "browser_download_url": format!("{}{}", server.url(), asset_path),
+            "size": downloaded.len(),
+            "digest": format!("sha256:{digest}")
+        }]
+    });
+
+    let _release = server
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/latest")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(release_body.to_string())
+        .create();
+
+    enva_cmd()
+        .args(["update"])
+        .env("ENVA_UPDATE_API_BASE", server.url())
+        .env("ENVA_UPDATE_BIN_PATH", &binary_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Already up to date (v0.3.0)"));
+
+    assert_eq!(fs::read(&binary_path).unwrap(), b"old-binary");
+}
+
+#[test]
+fn update_missing_release_returns_exit_code_5() {
+    let tmp = tempfile::tempdir().unwrap();
+    let binary_path = tmp.path().join("enva");
+    write_test_binary(&binary_path);
+
+    let mut server = Server::new();
+    let _release = server
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v9.9.9")
+        .with_status(404)
+        .create();
+
+    enva_cmd()
+        .args(["update", "--version", "v9.9.9"])
+        .env("ENVA_UPDATE_API_BASE", server.url())
+        .env("ENVA_UPDATE_BIN_PATH", &binary_path)
+        .assert()
+        .failure()
+        .code(5)
+        .stderr(predicate::str::contains("release not found"));
+}
+
+#[test]
+fn update_missing_asset_returns_exit_code_6() {
+    let tmp = tempfile::tempdir().unwrap();
+    let binary_path = tmp.path().join("enva");
+    write_test_binary(&binary_path);
+
+    let mut server = Server::new();
+    let release_body = serde_json::json!({
+        "tag_name": "v0.3.0",
+        "html_url": format!("{}/releases/v0.3.0", server.url()),
+        "assets": [{
+            "name": "enva-unsupported",
+            "browser_download_url": format!("{}/downloads/enva-unsupported", server.url()),
+            "size": 3,
+            "digest": format!("sha256:{}", sha256_hex(b"abc"))
+        }]
+    });
+
+    let _release = server
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.3.0")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(release_body.to_string())
+        .create();
+
+    enva_cmd()
+        .args(["update", "--version", "v0.3.0"])
+        .env("ENVA_UPDATE_API_BASE", server.url())
+        .env("ENVA_UPDATE_BIN_PATH", &binary_path)
+        .assert()
+        .failure()
+        .code(6)
+        .stderr(predicate::str::contains("does not contain asset"));
+}
+
+#[test]
+fn sync_from_help_shows_merge_flags() {
+    enva_cmd()
+        .args(["vault", "sync-from", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--merge"))
+        .stdout(predicate::str::contains("--prefer-local"))
+        .stdout(predicate::str::contains("--prefer-remote"));
+}
+
+#[test]
+fn sync_from_merge_conflicts_with_overwrite() {
+    enva_cmd()
+        .args([
+            "vault",
+            "sync-from",
+            "--from",
+            "user@host:/path",
+            "--merge",
+            "--overwrite",
+            "--vault",
+            "/tmp/dummy.json",
+            "--password-stdin",
+        ])
+        .write_stdin("pw\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn sync_from_prefer_local_requires_merge() {
+    enva_cmd()
+        .args([
+            "vault",
+            "sync-from",
+            "--from",
+            "user@host:/path",
+            "--prefer-local",
+            "--vault",
+            "/tmp/dummy.json",
+            "--password-stdin",
+        ])
+        .write_stdin("pw\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--merge"));
 }
