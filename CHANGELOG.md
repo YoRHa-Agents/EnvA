@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-31
+
+### Added
+
+- **Self-update CLI**: Added `enva update [--version <tag>] [--force]` to download the matching release binary from GitHub Releases, verify the asset size / SHA256 digest, and atomically replace the installed executable.
+- **Remote vault preview**: Added `POST /api/ssh/remote-preview` plus web UI support for inspecting remote secrets, apps, and bindings before running sync/deploy actions.
+- **Selective remote actions**: Added `POST /api/ssh/selective-sync` and `POST /api/ssh/selective-deploy` so the web UI can merge only selected secrets/apps (and optional bindings) instead of replacing the whole vault.
+- **Web-managed SSH hosts**: Added `POST` / `PUT` / `DELETE /api/ssh/hosts` backed by `~/.enva/ssh_hosts.json`, merged with parsed `~/.ssh/config` entries for a single host list.
+- **Vault diff/merge endpoints**: Added `POST /api/ssh/sync-preview` and `POST /api/ssh/sync-merge` to support the diff/merge review workflow from the web UI.
+- **Update check endpoint**: Added `GET /api/update/check` returning current/target version and platform asset information.
+
+### Changed
+
+- **Web remote UX**: Expanded the `Remote` modal to support host CRUD, remote preview, selective sync/deploy, and diff/merge review without leaving the dashboard.
+- **Settings UX**: Added a settings-panel update check powered by `/api/update/check` so operators can see when a newer release is available for the current platform.
+- **Vault merge API**: Extended `merge_from` with optional `selected_secret_aliases` and `selected_app_names` filter parameters; `None` preserves existing full-merge behavior.
+- **Dependencies**: Added `reqwest` (rustls-tls), `semver`, `sha2`, and `mockito` (dev) to the `enva` crate.
+
 ## [0.2.0] - 2026-03-31
 
 ### Added
@@ -71,7 +89,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.3.0
 [0.2.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.2.0
 [0.1.2]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.2
 [0.1.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.1

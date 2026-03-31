@@ -196,6 +196,13 @@ build_job() {
   export CARGO_TARGET_DIR="${PXDIR}"
   mkdir -p "${CARGO_TARGET_DIR}"
 
+  if [[ "${TRIPLE}" == "aarch64-apple-darwin" ]]; then
+    local shim_dir="${ROOT}/tools/apple-sdk-shim"
+    local triple_env="${TRIPLE//-/_}"
+    export "CFLAGS_${triple_env}=-I${shim_dir}"
+    export "CPPFLAGS_${triple_env}=-I${shim_dir}"
+  fi
+
   rustup target add "${TRIPLE}" >/dev/null 2>&1 || rustup target add "${TRIPLE}"
 
   if [[ "${TRIPLE}" == "${HOST_TRIPLE}" ]]; then

@@ -202,6 +202,14 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
 .btn-danger:hover { background:rgba(239,68,68,0.2); }
 .btn-success { background:var(--success-bg); color:var(--success); border:1px solid rgba(34,197,94,0.2); }
 .btn-success:hover { background:rgba(34,197,94,0.2); }
+.btn-warning { background:rgba(234,179,8,0.1); color:#eab308; border:1px solid rgba(234,179,8,0.2); }
+.btn-warning:hover { background:rgba(234,179,8,0.2); }
+.btn-danger { background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2); }
+.btn-danger:hover { background:rgba(239,68,68,0.2); }
+.merge-table td { padding:6px 8px; border-bottom:1px solid var(--border-color); }
+.merge-table .status-added { color:var(--success); }
+.merge-table .status-removed { color:var(--error); }
+.merge-table .status-modified { color:#eab308; }
 .btn-sm { padding:5px 12px; font-size:12px; }
 .remote-host-list {
   display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; max-height:240px; overflow:auto;
@@ -805,7 +813,7 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
 
 <!-- ─── Settings Modal ────────────────────────────────── -->
 <div class="modal-overlay" id="settingsModal">
-  <div class="modal" style="width:420px;">
+  <div class="modal" style="width:460px;">
     <div class="modal-header">
       <h3 data-i18n="settings">Settings</h3>
       <button class="modal-close" onclick="document.getElementById('settingsModal').classList.remove('show')">&times;</button>
@@ -824,6 +832,11 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
         <label data-i18n="port">Port</label>
         <input type="number" id="settingsPort" placeholder="8080" min="1024" max="65535">
       </div>
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Self Update</div>
+        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v0.2.0</div>
+        <button class="btn btn-outline btn-sm" onclick="checkForUpdates()">Check for Updates</button>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="document.getElementById('settingsModal').classList.remove('show')" data-i18n="cancel">Cancel</button>
@@ -834,7 +847,7 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
 
 <!-- ─── Confirm Dialog ────────────────────────────────── -->
 <div class="modal-overlay" id="remoteModal">
-  <div class="modal" style="width:720px">
+  <div class="modal" style="width:980px">
     <div class="modal-header">
       <h3>Remote Vault Actions</h3>
       <button class="modal-close" onclick="closeModal('remoteModal')">
@@ -851,19 +864,105 @@ code, .mono { font-family:'JetBrains Mono',monospace; }
       </div>
       <div class="field-hint" id="remoteHostsEmpty" style="display:none;margin-bottom:12px;">No SSH hosts are available from the current SSH config.</div>
       <div class="remote-host-list" id="remoteHostsList"></div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
+          <div style="font-size:13px;font-weight:600;color:var(--text-secondary);">Manage SSH Hosts</div>
+          <button class="btn btn-outline btn-sm" onclick="resetRemoteHostForm()">New Host</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+          <div class="field-group" style="margin:0;">
+            <label>Alias</label>
+            <input type="text" id="remoteHostAlias" placeholder="e.g. prod">
+          </div>
+          <div class="field-group" style="margin:0;">
+            <label>Hostname</label>
+            <input type="text" id="remoteHostName" placeholder="e.g. prod.example.com">
+          </div>
+          <div class="field-group" style="margin:0;">
+            <label>User</label>
+            <input type="text" id="remoteHostUser" placeholder="e.g. deploy">
+          </div>
+          <div class="field-group" style="margin:0;">
+            <label>Port</label>
+            <input type="number" id="remoteHostPort" placeholder="22" min="1" max="65535">
+          </div>
+          <div class="field-group" style="margin:0;grid-column:1/-1;">
+            <label>Identity File (optional)</label>
+            <input type="text" id="remoteHostIdentityFile" class="mono" placeholder="~/.ssh/id_ed25519">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+          <button class="btn btn-outline btn-sm" onclick="resetRemoteHostForm()">Clear</button>
+          <button class="btn btn-primary btn-sm" id="remoteHostSaveBtn" onclick="saveRemoteHost()">Add Host</button>
+        </div>
+      </div>
       <div class="field-group" style="margin-top:16px;">
         <label>Remote vault path</label>
         <input type="text" id="remotePath" class="mono" placeholder="/srv/enva/prod.vault.json">
+      </div>
+      <div class="field-group">
+        <label>Remote password</label>
+        <input type="password" id="remotePassword" placeholder="Used to decrypt previewed remote vault">
       </div>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);">
         <input type="checkbox" id="remoteOverwrite">
         <span>Allow overwrite for deploy or sync-from</span>
       </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);margin-top:8px;">
+        <input type="checkbox" id="remoteIncludeBindings" checked>
+        <span>Include bindings when syncing or deploying selected apps</span>
+      </label>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Remote Preview</div>
+        <div class="field-hint" id="remotePreviewEmpty" style="display:block;margin-bottom:8px;">Preview the remote vault to choose secrets and apps for selective sync or deploy.</div>
+        <div class="field-hint" id="remotePreviewSummary" style="display:none;margin-bottom:8px;"></div>
+        <div id="remotePreviewList" style="display:none;max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);padding:12px;background:var(--bg-input);"></div>
+      </div>
     </div>
     <div class="modal-footer remote-actions">
       <button class="btn btn-outline" onclick="closeModal('remoteModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="submitRemoteAction('deploy')">Deploy</button>
-      <button class="btn btn-success" onclick="submitRemoteAction('sync')">Sync From</button>
+      <button class="btn btn-outline" onclick="previewRemoteVault()">Preview Remote</button>
+      <button class="btn btn-primary" onclick="submitSelectiveRemoteAction('deploy')">Deploy Selected</button>
+      <button class="btn btn-success" onclick="submitSelectiveRemoteAction('sync')">Sync Selected</button>
+      <button class="btn btn-outline" onclick="submitRemoteAction('deploy')">Deploy</button>
+      <button class="btn btn-outline" onclick="submitRemoteAction('sync')">Sync From</button>
+      <button class="btn btn-warning" onclick="startMergePreview()">Diff</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Merge Dialog ────────────────────────────────── -->
+<div class="modal-overlay" id="mergeModal">
+  <div class="modal" style="width:860px;max-height:80vh;display:flex;flex-direction:column;">
+    <div class="modal-header">
+      <h3>Vault Diff</h3>
+      <button class="modal-close" onclick="closeModal('mergeModal')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" style="overflow-y:auto;flex:1;">
+      <div id="mergeNoConflicts" style="display:none;padding:16px 0;color:var(--text-muted);">No conflicts detected. All remote additions will be merged automatically.</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-outline btn-sm" onclick="setAllResolutions('local')">All Local</button>
+        <button class="btn btn-outline btn-sm" onclick="setAllResolutions('remote')">All Remote</button>
+      </div>
+      <table class="merge-table" id="mergeTable" style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border-color);">
+            <th style="text-align:left;padding:6px 8px;">Type</th>
+            <th style="text-align:left;padding:6px 8px;">Alias / Name</th>
+            <th style="text-align:left;padding:6px 8px;">Key</th>
+            <th style="text-align:left;padding:6px 8px;">Status</th>
+            <th style="text-align:left;padding:6px 8px;">Resolution</th>
+          </tr>
+        </thead>
+        <tbody id="mergeTableBody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('mergeModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="applyMerge()">Apply Merge</button>
+      <button class="btn btn-danger" id="mergeOverwriteBtn" style="display:none" onclick="overwriteFromMergeDialog()">Overwrite</button>
     </div>
   </div>
 </div>
@@ -984,6 +1083,7 @@ const SECRETS = {};
 const APPS = {};
 
 const SSH_HOSTS = {};
+const APP_VERSION = 'v0.3.0';
 
 let currentView = 'all';
 let revealedValues = new Set();
@@ -993,9 +1093,40 @@ let importData = [];
 let confirmCallback = null;
 let authToken = null;
 let selectedRemoteHost = null;
+let remotePreviewData = null;
+let remoteSelections = { secrets: new Set(), apps: new Set() };
+let editingRemoteHostAlias = null;
+
+function currentPort() {
+  return location.port || '';
+}
+
+function storedPort() {
+  return localStorage.getItem('enva-port') || '';
+}
+
+function defaultPortValue() {
+  return currentPort() || storedPort() || '8080';
+}
+
+function activePortValue() {
+  const settingsModal = document.getElementById('settingsModal');
+  const settingsPort = document.getElementById('settingsPort');
+  if (settingsModal && settingsModal.classList.contains('show') && settingsPort && settingsPort.value.trim()) {
+    return settingsPort.value.trim();
+  }
+
+  const loginOverlay = document.getElementById('loginOverlay');
+  const loginPort = document.getElementById('loginPort');
+  if (loginOverlay && !loginOverlay.classList.contains('hidden') && loginPort && loginPort.value.trim()) {
+    return loginPort.value.trim();
+  }
+
+  return defaultPortValue();
+}
 
 function apiBase() {
-  const port = localStorage.getItem('enva-port') || location.port || '8080';
+  const port = activePortValue();
   return `${location.protocol}//${location.hostname}:${port}/api`;
 }
 
@@ -1032,6 +1163,17 @@ function writeVaultPathPrefs(raw, absolute) {
     localStorage.removeItem('enva-vault-path');
   }
   localStorage.setItem('enva-vault-path-absolute', absolute ? 'true' : 'false');
+}
+
+function preferredVaultPathPref(inputId, submittedPath, serverPath) {
+  const raw = getPathFieldRaw(inputId);
+  if (!raw) {
+    return serverPath || submittedPath || '';
+  }
+  if (!serverPath || serverPath === submittedPath || !isAbsolutePath(raw)) {
+    return raw;
+  }
+  return serverPath;
 }
 
 function setPathPreview(previewId, message, isError = false) {
@@ -1271,11 +1413,14 @@ async function doInit() {
       'vault'
     );
     const absolute = document.getElementById('loginVaultPathAbsolute').checked;
-    writeVaultPathPrefs(getPathFieldRaw('loginVaultPath') || vaultPath, absolute || (!getPathFieldRaw('loginVaultPath') && isAbsolutePath(vaultPath)));
     const data = await apiFetch('/vault/init', {
       method: 'POST',
       body: JSON.stringify({ password: pw, vault_path: vaultPath })
     });
+    writeVaultPathPrefs(
+      preferredVaultPathPref('loginVaultPath', vaultPath, data.vault_path || vaultPath),
+      absolute
+    );
     await syncVaultPathFields(data.vault_path || vaultPath);
     initMode = false;
     document.getElementById('confirmPasswordGroup').style.display = 'none';
@@ -1322,8 +1467,8 @@ async function doLogin() {
       body: JSON.stringify({ password: pw, vault_path: vaultPath })
     });
     writeVaultPathPrefs(
-      getPathFieldRaw('loginVaultPath') || data.vault_path,
-      absolute || (!getPathFieldRaw('loginVaultPath') && isAbsolutePath(data.vault_path))
+      preferredVaultPathPref('loginVaultPath', vaultPath, data.vault_path),
+      absolute
     );
     await syncVaultPathFields(data.vault_path);
     authToken = data.token;
@@ -1405,6 +1550,117 @@ function loadAppsFromAPI() {
     .catch(err => toast(err.message, 'error'));
 }
 
+function resetRemotePreview() {
+  remotePreviewData = null;
+  remoteSelections = { secrets: new Set(), apps: new Set() };
+  const empty = document.getElementById('remotePreviewEmpty');
+  const summary = document.getElementById('remotePreviewSummary');
+  const list = document.getElementById('remotePreviewList');
+  if (empty) empty.style.display = 'block';
+  if (summary) summary.style.display = 'none';
+  if (list) {
+    list.style.display = 'none';
+    list.innerHTML = '';
+  }
+}
+
+function setUpdateStatus(message, isError = false) {
+  const el = document.getElementById('updateStatus');
+  if (!el) return;
+  el.textContent = message;
+  el.style.color = isError ? 'var(--danger)' : 'var(--text-muted)';
+}
+
+async function checkForUpdates() {
+  setUpdateStatus(`Checking for updates from ${APP_VERSION}...`);
+  try {
+    const data = await apiFetch('/update/check');
+    if (data.needs_update) {
+      setUpdateStatus(`Update available: ${data.target_version} (${data.asset_name}). Run 'enva update' in your shell.`);
+    } else {
+      setUpdateStatus(`Already up to date (${data.current_version}).`);
+    }
+  } catch (err) {
+    setUpdateStatus(err.message, true);
+  }
+}
+
+function renderRemotePreview() {
+  const empty = document.getElementById('remotePreviewEmpty');
+  const summary = document.getElementById('remotePreviewSummary');
+  const list = document.getElementById('remotePreviewList');
+  if (!empty || !summary || !list) return;
+
+  if (!remotePreviewData) {
+    resetRemotePreview();
+    return;
+  }
+
+  const secrets = remotePreviewData.secrets || [];
+  const apps = remotePreviewData.apps || [];
+  const bindings = remotePreviewData.bindings || [];
+  empty.style.display = 'none';
+  summary.style.display = 'block';
+  summary.textContent = `${secrets.length} secrets, ${apps.length} apps, ${bindings.length} bindings loaded.`;
+  list.style.display = 'block';
+
+  const secretItems = secrets.map(secret => `
+    <label style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <input type="checkbox" ${remoteSelections.secrets.has(secret.alias) ? 'checked' : ''} onchange='toggleRemoteSelection("secret", ${JSON.stringify(secret.alias)}, this.checked)'>
+      <span style="display:flex;flex-direction:column;gap:2px;">
+        <span class="mono">${esc(secret.alias)}</span>
+        <span style="font-size:12px;color:var(--text-muted)">${esc(secret.key)}${secret.description ? ` • ${esc(secret.description)}` : ''}</span>
+      </span>
+    </label>
+  `).join('');
+  const appItems = apps.map(app => `
+    <label style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <input type="checkbox" ${remoteSelections.apps.has(app.name) ? 'checked' : ''} onchange='toggleRemoteSelection("app", ${JSON.stringify(app.name)}, this.checked)'>
+      <span style="display:flex;flex-direction:column;gap:2px;">
+        <span>${esc(app.name)}</span>
+        <span style="font-size:12px;color:var(--text-muted)">${esc(String(app.secret_count || 0))} secrets${app.description ? ` • ${esc(app.description)}` : ''}</span>
+      </span>
+    </label>
+  `).join('');
+  const bindingItems = bindings.map(binding => `
+    <div style="padding:6px 0;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);">
+      <span class="mono">${esc(binding.app_name)}</span> → <span class="mono">${esc(binding.alias)}</span> (${esc(binding.injected_as || binding.key || 'default')})
+    </div>
+  `).join('');
+
+  list.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Secrets</div>
+        ${secretItems || '<div class="field-hint">No secrets in remote vault.</div>'}
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Apps</div>
+        ${appItems || '<div class="field-hint">No apps in remote vault.</div>'}
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Bindings</div>
+        ${bindingItems || '<div class="field-hint">No bindings in remote vault.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function toggleRemoteSelection(kind, id, checked) {
+  const set = kind === 'secret' ? remoteSelections.secrets : remoteSelections.apps;
+  if (checked) set.add(id); else set.delete(id);
+}
+
+function currentRemoteSelectionPayload() {
+  return {
+    host_alias: selectedRemoteHost,
+    remote_path: document.getElementById('remotePath').value.trim(),
+    selected_secrets: Array.from(remoteSelections.secrets),
+    selected_apps: Array.from(remoteSelections.apps),
+    include_bindings: !!document.getElementById('remoteIncludeBindings').checked
+  };
+}
+
 function renderRemoteHosts() {
   const list = document.getElementById('remoteHostsList');
   const empty = document.getElementById('remoteHostsEmpty');
@@ -1418,13 +1674,20 @@ function renderRemoteHosts() {
     const div = document.createElement('div');
     div.className = 'remote-host-card' + (selectedRemoteHost === host.alias ? ' active' : '');
     const authLabel = host.identity_file ? 'identity file' : 'ssh-agent';
+    const sourceLabel = host.source === 'web' ? 'web-managed' : 'ssh config';
+    const actions = host.editable ? `
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <button class="btn btn-outline btn-sm" onclick='event.stopPropagation();startEditRemoteHost(${JSON.stringify(host.alias)})'>Edit</button>
+        <button class="btn btn-danger btn-sm" onclick='event.stopPropagation();deleteRemoteHost(${JSON.stringify(host.alias)})'>Delete</button>
+      </div>` : '';
     div.innerHTML = `
       <div class="title mono">${esc(host.alias)}</div>
       <div class="meta">
         <span>${esc(host.user)}@${esc(host.hostname)}:${esc(String(host.port || 22))}</span>
-        <span>${esc(authLabel)}</span>
+        <span>${esc(authLabel)} • ${esc(sourceLabel)}</span>
         ${host.identity_file ? `<span class="mono">${esc(host.identity_file)}</span>` : ''}
-      </div>`;
+      </div>
+      ${actions}`;
     div.onclick = () => {
       selectedRemoteHost = host.alias;
       renderRemoteHosts();
@@ -1446,15 +1709,100 @@ async function loadRemoteHosts(force = false) {
   }
   const configPath = document.getElementById('remoteConfigPath');
   if (configPath) {
-    configPath.textContent = data.config_path ? `Config: ${data.config_path}` : '';
+    const parts = [];
+    if (data.config_path) parts.push(`Config: ${data.config_path}`);
+    if (data.managed_path) parts.push(`Managed: ${data.managed_path}`);
+    configPath.textContent = parts.join(' • ');
   }
   renderRemoteHosts();
   return data;
 }
 
+function resetRemoteHostForm() {
+  editingRemoteHostAlias = null;
+  document.getElementById('remoteHostAlias').value = '';
+  document.getElementById('remoteHostName').value = '';
+  document.getElementById('remoteHostUser').value = '';
+  document.getElementById('remoteHostPort').value = '22';
+  document.getElementById('remoteHostIdentityFile').value = '';
+  document.getElementById('remoteHostSaveBtn').textContent = 'Add Host';
+}
+
+function startEditRemoteHost(alias) {
+  const host = SSH_HOSTS[alias];
+  if (!host || !host.editable) {
+    toast('Only web-managed hosts can be edited.', 'error');
+    return;
+  }
+  editingRemoteHostAlias = alias;
+  selectedRemoteHost = alias;
+  document.getElementById('remoteHostAlias').value = host.alias || '';
+  document.getElementById('remoteHostName').value = host.hostname || '';
+  document.getElementById('remoteHostUser').value = host.user || '';
+  document.getElementById('remoteHostPort').value = String(host.port || 22);
+  document.getElementById('remoteHostIdentityFile').value = host.identity_file || '';
+  document.getElementById('remoteHostSaveBtn').textContent = 'Save Host';
+  renderRemoteHosts();
+}
+
+async function saveRemoteHost() {
+  const wasEditing = !!editingRemoteHostAlias;
+  const payload = {
+    alias: document.getElementById('remoteHostAlias').value.trim(),
+    hostname: document.getElementById('remoteHostName').value.trim(),
+    user: document.getElementById('remoteHostUser').value.trim(),
+    port: Number(document.getElementById('remoteHostPort').value || 22),
+    identity_file: document.getElementById('remoteHostIdentityFile').value.trim() || null
+  };
+  if (!payload.alias || !payload.hostname || !payload.user) {
+    toast('Alias, hostname, and user are required.', 'error');
+    return;
+  }
+
+  const method = editingRemoteHostAlias ? 'PUT' : 'POST';
+  const endpoint = editingRemoteHostAlias
+    ? `/ssh/hosts/${encodeURIComponent(editingRemoteHostAlias)}`
+    : '/ssh/hosts';
+  try {
+    await apiFetch(endpoint, {
+      method,
+      body: JSON.stringify(payload)
+    });
+    selectedRemoteHost = payload.alias;
+    resetRemoteHostForm();
+    await loadRemoteHosts(false);
+    toast(wasEditing ? `SSH host "${payload.alias}" updated.` : `SSH host "${payload.alias}" added.`);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function deleteRemoteHost(alias) {
+  const host = SSH_HOSTS[alias];
+  if (!host || !host.editable) {
+    toast('Only web-managed hosts can be deleted.', 'error');
+    return;
+  }
+  showConfirm('Delete SSH Host', `Delete SSH host "${alias}"?`, async () => {
+    try {
+      await apiFetch(`/ssh/hosts/${encodeURIComponent(alias)}`, { method: 'DELETE' });
+      if (selectedRemoteHost === alias) selectedRemoteHost = null;
+      if (editingRemoteHostAlias === alias) resetRemoteHostForm();
+      await loadRemoteHosts(false);
+      toast(`SSH host "${alias}" deleted.`);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
 async function openRemoteModal() {
   document.getElementById('remotePath').value = '';
+  document.getElementById('remotePassword').value = '';
   document.getElementById('remoteOverwrite').checked = false;
+  document.getElementById('remoteIncludeBindings').checked = true;
+  resetRemoteHostForm();
+  resetRemotePreview();
   try {
     await loadRemoteHosts(false);
     openModal('remoteModal');
@@ -1472,6 +1820,77 @@ async function refreshRemoteHosts() {
   }
 }
 
+async function previewRemoteVault() {
+  if (!selectedRemoteHost || !SSH_HOSTS[selectedRemoteHost]) {
+    toast('Select an SSH host first.', 'error');
+    return;
+  }
+  const remotePath = document.getElementById('remotePath').value.trim();
+  const remotePassword = document.getElementById('remotePassword').value;
+  if (!remotePath) {
+    toast('Remote vault path is required.', 'error');
+    return;
+  }
+  if (!remotePassword) {
+    toast('Remote password is required for preview.', 'error');
+    return;
+  }
+
+  try {
+    const data = await apiFetch('/ssh/remote-preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        host_alias: selectedRemoteHost,
+        remote_path: remotePath,
+        remote_password: remotePassword,
+        reveal: false
+      })
+    });
+    remotePreviewData = data;
+    remoteSelections = {
+      secrets: new Set((data.secrets || []).map(secret => secret.alias)),
+      apps: new Set((data.apps || []).map(app => app.name))
+    };
+    renderRemotePreview();
+    toast(`Loaded remote preview from ${selectedRemoteHost}.`);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function submitSelectiveRemoteAction(mode) {
+  if (!remotePreviewData) {
+    toast('Preview the remote vault first.', 'error');
+    return;
+  }
+  const payload = currentRemoteSelectionPayload();
+  if (!payload.host_alias || !payload.remote_path) {
+    toast('Select a host and remote path first.', 'error');
+    return;
+  }
+  if (payload.selected_secrets.length === 0 && payload.selected_apps.length === 0) {
+    toast('Select at least one secret or application.', 'error');
+    return;
+  }
+
+  const endpoint = mode === 'deploy' ? '/ssh/selective-deploy' : '/ssh/selective-sync';
+  try {
+    await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (mode === 'deploy') {
+      toast(`Selected items deployed to ${payload.host_alias}.`);
+    } else {
+      loadSecretsFromAPI();
+      loadAppsFromAPI();
+      toast(`Selected items synced from ${payload.host_alias}.`);
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 async function submitRemoteAction(mode) {
   if (!selectedRemoteHost || !SSH_HOSTS[selectedRemoteHost]) {
     toast('Select an SSH host first.', 'error');
@@ -1484,6 +1903,38 @@ async function submitRemoteAction(mode) {
     return;
   }
 
+  mergeHostAlias = selectedRemoteHost;
+  mergeRemotePath = remotePath;
+
+  try {
+    const diff = await apiFetch('/ssh/sync-preview', {
+      method: 'POST',
+      body: JSON.stringify({ host_alias: selectedRemoteHost, remote_path: remotePath })
+    });
+    const hasChanges = (diff.secrets && diff.secrets.length > 0) || (diff.apps && diff.apps.length > 0);
+    if (hasChanges) {
+      pendingRemoteMode = mode;
+      currentMergeDiff = diff;
+      mergeResolutions = {};
+      renderMergeTable(diff);
+      document.getElementById('mergeOverwriteBtn').style.display = '';
+      document.getElementById('mergeOverwriteBtn').textContent = mode === 'deploy' ? 'Overwrite Remote' : 'Overwrite Local';
+      closeModal('remoteModal');
+      openModal('mergeModal');
+      return;
+    }
+  } catch (_) {
+    // Preview failed (e.g. remote file doesn't exist) — proceed directly.
+  }
+
+  await executeRemoteAction(mode);
+}
+
+let pendingRemoteMode = null;
+
+async function executeRemoteAction(mode) {
+  const remotePath = mergeRemotePath || document.getElementById('remotePath').value.trim();
+  const hostAlias = mergeHostAlias || selectedRemoteHost;
   const overwrite = document.getElementById('remoteOverwrite').checked;
   const endpoint = mode === 'deploy' ? '/ssh/deploy' : '/ssh/sync-from';
 
@@ -1491,19 +1942,137 @@ async function submitRemoteAction(mode) {
     await apiFetch(endpoint, {
       method: 'POST',
       body: JSON.stringify({
-        host_alias: selectedRemoteHost,
+        host_alias: hostAlias,
         remote_path: remotePath,
         overwrite
       })
     });
     closeModal('remoteModal');
+    closeModal('mergeModal');
     if (mode === 'deploy') {
-      toast(`Vault deployed to ${selectedRemoteHost}.`);
+      toast(`Vault deployed to ${hostAlias}.`);
     } else {
       loadSecretsFromAPI();
       loadAppsFromAPI();
-      toast(`Vault synced from ${selectedRemoteHost}.`);
+      toast(`Vault synced from ${hostAlias}.`);
     }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function overwriteFromMergeDialog() {
+  if (pendingRemoteMode) {
+    await executeRemoteAction(pendingRemoteMode);
+    pendingRemoteMode = null;
+  }
+}
+
+let currentMergeDiff = null;
+let mergeResolutions = {};
+let mergeHostAlias = null;
+let mergeRemotePath = null;
+
+async function startMergePreview() {
+  if (!selectedRemoteHost || !SSH_HOSTS[selectedRemoteHost]) {
+    toast('Select an SSH host first.', 'error');
+    return;
+  }
+  const remotePath = document.getElementById('remotePath').value.trim();
+  if (!remotePath) {
+    toast('Remote vault path is required.', 'error');
+    return;
+  }
+  mergeHostAlias = selectedRemoteHost;
+  mergeRemotePath = remotePath;
+  try {
+    const diff = await apiFetch('/ssh/sync-preview', {
+      method: 'POST',
+      body: JSON.stringify({ host_alias: selectedRemoteHost, remote_path: remotePath })
+    });
+    pendingRemoteMode = null;
+    currentMergeDiff = diff;
+    mergeResolutions = {};
+    renderMergeTable(diff);
+    document.getElementById('mergeOverwriteBtn').style.display = 'none';
+    closeModal('remoteModal');
+    openModal('mergeModal');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function renderMergeTable(diff) {
+  const tbody = document.getElementById('mergeTableBody');
+  tbody.innerHTML = '';
+  const allItems = [];
+  (diff.secrets || []).forEach(s => allItems.push({ ...s, type: 'Secret', diff_key: s.alias }));
+  (diff.apps || []).forEach(a => allItems.push({ ...a, type: 'App', diff_key: a.name, alias: a.name, local_key: null, remote_key: null }));
+
+  const noConflict = document.getElementById('mergeNoConflicts');
+  if (allItems.length === 0) {
+    noConflict.style.display = 'block';
+    noConflict.textContent = 'Vaults are identical — nothing to merge.';
+    return;
+  }
+  const hasConflicts = allItems.some(i => i.status === 'Modified');
+  if (!hasConflicts) {
+    noConflict.style.display = 'block';
+    noConflict.textContent = 'No conflicts detected. Remote additions will be merged automatically.';
+  } else {
+    noConflict.style.display = 'none';
+  }
+
+  allItems.forEach(item => {
+    const tr = document.createElement('tr');
+    const alias = item.alias || '—';
+    const key = item.local_key || item.remote_key || '—';
+    let statusLabel, statusClass;
+    if (item.status === 'OnlyRemote') { statusLabel = 'Added (remote)'; statusClass = 'status-added'; }
+    else if (item.status === 'OnlyLocal') { statusLabel = 'Only local'; statusClass = 'status-removed'; }
+    else { statusLabel = 'Modified'; statusClass = 'status-modified'; }
+
+    let resolutionCell = '';
+    if (item.status === 'Modified') {
+      const rid = item.diff_key;
+      mergeResolutions[rid] = mergeResolutions[rid] || 'KeepLocal';
+      resolutionCell = `
+        <label style="margin-right:8px;cursor:pointer;"><input type="radio" name="res_${rid}" value="KeepLocal" checked onchange="mergeResolutions['${rid}']='KeepLocal'"> Local</label>
+        <label style="margin-right:8px;cursor:pointer;"><input type="radio" name="res_${rid}" value="KeepRemote" onchange="mergeResolutions['${rid}']='KeepRemote'"> Remote</label>
+        <label style="cursor:pointer;"><input type="radio" name="res_${rid}" value="KeepBoth" onchange="mergeResolutions['${rid}']='KeepBoth'"> Both</label>`;
+    } else {
+      resolutionCell = '<span style="color:var(--text-muted)">Auto</span>';
+    }
+
+    tr.innerHTML = `<td>${item.type}</td><td class="mono">${alias}</td><td class="mono">${key}</td><td class="${statusClass}">${statusLabel}</td><td>${resolutionCell}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function setAllResolutions(choice) {
+  const value = choice === 'local' ? 'KeepLocal' : 'KeepRemote';
+  Object.keys(mergeResolutions).forEach(id => {
+    mergeResolutions[id] = value;
+    const radio = document.querySelector(`input[name="res_${id}"][value="${value}"]`);
+    if (radio) radio.checked = true;
+  });
+}
+
+async function applyMerge() {
+  const resolutions = Object.entries(mergeResolutions).map(([key, kind]) => ({ [kind]: { key } }));
+  try {
+    await apiFetch('/ssh/sync-merge', {
+      method: 'POST',
+      body: JSON.stringify({
+        host_alias: mergeHostAlias,
+        remote_path: mergeRemotePath,
+        resolutions
+      })
+    });
+    closeModal('mergeModal');
+    loadSecretsFromAPI();
+    loadAppsFromAPI();
+    toast('Merge applied successfully.');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -2466,8 +3035,10 @@ function closeConfirm(confirmed) {
 }
 
 async function openSettingsModal() {
-  const pt = localStorage.getItem('enva-port') || '';
+  const pt = defaultPortValue();
   document.getElementById('settingsPort').value = pt;
+  document.getElementById('settingsPort').placeholder = defaultPortValue();
+  setUpdateStatus(`Current version: ${APP_VERSION}`);
   try {
     const settings = await apiFetch('/session/settings');
     if (!readVaultPathPrefs().raw && settings.vault_path) {
@@ -2500,8 +3071,8 @@ async function saveSettings() {
       body: JSON.stringify({ vault_path: vaultPath })
     });
     writeVaultPathPrefs(
-      getPathFieldRaw('settingsVaultPath') || settings.vault_path,
-      absolute || (!getPathFieldRaw('settingsVaultPath') && isAbsolutePath(settings.vault_path))
+      preferredVaultPathPref('settingsVaultPath', vaultPath, settings.vault_path),
+      absolute
     );
     await syncVaultPathFields(settings.vault_path);
     document.getElementById('settingsModal').classList.remove('show');
@@ -2520,9 +3091,14 @@ async function saveSettings() {
 setTheme(currentTheme);
 setLanguage(currentLang);
 (async function initLoginFields() {
-  const savedPort = localStorage.getItem('enva-port');
+  const savedPort = defaultPortValue();
   const ptEl = document.getElementById('loginPort');
-  if (ptEl && savedPort) ptEl.value = savedPort;
+  if (ptEl) {
+    ptEl.value = savedPort;
+    ptEl.placeholder = defaultPortValue();
+  }
+  const settingsPortEl = document.getElementById('settingsPort');
+  if (settingsPortEl) settingsPortEl.placeholder = defaultPortValue();
   bindPathField('loginVaultPath', 'loginVaultPathAbsolute', 'loginVaultPathResolved', 'vault', true);
   bindPathField('settingsVaultPath', 'settingsVaultPathAbsolute', 'settingsVaultPathResolved', 'vault', true);
   bindPathField('newAppPath', 'newAppPathAbsolute', 'newAppPathResolved', 'app', false);
