@@ -1,6 +1,8 @@
 # Vault 文件格式规范 (Vault File Format Specification)
 
 > **Summary (EN):** Defines the on-disk format for the Enva secrets vault — a single JSON file with an alias-based secrets pool and per-value AES-256-GCM encryption. Secrets are identified by human-readable aliases and mapped to environment variable names; applications reference secrets by alias and may override injection names. Password-based key derivation uses Argon2id (RFC 9106). Values are encoded in a SOPS-inspired `ENC[AES256_GCM,data:…,iv:…,tag:…,type:…]` format. File-level integrity is enforced via HMAC-SHA256 over a canonical serialization of all aliases, keys, values, app bindings, and metadata. The format is self-describing: KDF parameters, salt, and format version are embedded in `_meta`, enabling any compliant reader to decrypt without external configuration. Version evolution follows semver with strict forward-compatibility guarantees for minor releases.
+>
+> **更新说明（2026-03-30）：** 运行时格式 `2.1` 为每个 secret 和 application 增加了不可变 `id` 字段。顶层仍然以 alias 和 app name 作为 JSON key，以保持人类可读性；但应用里的 secret 绑定和 override map 在保存时会规范化为 secret id，因此 alias 重命名后绑定关系不会丢失。现有 `2.0` vault 仍可正常加载，并会在保存时升级。当前实现强制的最小 `kdf.memory_cost` 为 `8192` KiB。
 
 ---
 
@@ -18,7 +20,7 @@
 
 ## 1. Vault JSON Schema
 
-Vault 文件为单个 UTF-8 编码的 JSON 文件，顶层包含三个字段：`_meta`（元数据）、`secrets`（别名密钥池）、`apps`（应用引用配置）。
+Vault 文件为单个 UTF-8 编码的 JSON 文件，顶层包含三个字段：`_meta`（元数据）、`secrets`（以 alias 为 key、带不可变 id 的密钥池）、`apps`（以应用名为 key、带不可变 app id 的应用引用配置）。
 
 ### 1.1 顶层结构
 
@@ -33,15 +35,15 @@ Vault 文件为单个 UTF-8 编码的 JSON 文件，顶层包含三个字段：`
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `_meta` | `object` | 是 | 文件元数据，包含加密参数、完整性校验值、时间戳 |
-| `secrets` | `object` | 是 | 别名密钥池，key 为人类可读别名，value 为包含环境变量名、加密值和元信息的结构体 |
-| `apps` | `object` | 是 | 应用配置，通过别名引用 `secrets` 池中的密钥，支持注入名覆盖 |
+| `secrets` | `object` | 是 | 别名密钥池，key 为人类可读 alias，value 包含不可变 `id`、环境变量名、加密值和元信息 |
+| `apps` | `object` | 是 | 应用配置，以应用名为 key；每个应用记录也包含不可变 `id`，并以 secret id 保存绑定关系 |
 
 ### 1.2 `_meta` 对象
 
 ```json
 {
   "_meta": {
-    "format_version": "2.0",
+    "format_version": "2.1",
     "kdf": {
       "algorithm": "argon2id",
       "memory_cost": 65536,
@@ -61,7 +63,7 @@ Vault 文件为单个 UTF-8 编码的 JSON 文件，顶层包含三个字段：`
 
 | 字段路径 | 类型 | 必填 | 说明 |
 |---------|------|------|------|
-| `format_version` | `string` | 是 | 格式版本号，遵循 `major.minor` 语义化版本。当前版本 `"2.0"` |
+| `format_version` | `string` | 是 | 格式版本号，遵循 `major.minor` 语义化版本。当前版本 `"2.1"` |
 | `kdf` | `object` | 是 | 密钥派生函数参数（自描述，解密时无需外部配置） |
 | `kdf.algorithm` | `string` | 是 | KDF 算法标识。v2.x 仅允许 `"argon2id"` |
 | `kdf.memory_cost` | `integer` | 是 | Argon2id 内存开销，单位 KiB。推荐值 `65536`（64 MiB） |
@@ -76,7 +78,7 @@ Vault 文件为单个 UTF-8 编码的 JSON 文件，顶层包含三个字段：`
 #### 约束条件
 
 - `format_version` 必须匹配 `^\d+\.\d+$`
-- `kdf.memory_cost` 最小值 `16384`（16 MiB），防止故意弱化
+- `kdf.memory_cost` 最小值 `8192`（8 MiB），与当前运行时实现保持一致
 - `kdf.time_cost` 最小值 `1`
 - `kdf.parallelism` 最小值 `1`
 - `salt` 解码后必须为 32 字节

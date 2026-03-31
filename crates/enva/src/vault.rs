@@ -1,6 +1,6 @@
 //! Alias-based encrypted vault store with JSON persistence.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -8,10 +8,13 @@ use std::path::Path;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chrono::Utc;
 use enva_core::vault_crypto;
+use rand::RngCore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-const FORMAT_VERSION: &str = "2.0";
+const FORMAT_VERSION: &str = "2.1";
+const SECRET_ID_PREFIX: &str = "sec_";
+const APP_ID_PREFIX: &str = "app_";
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
@@ -21,8 +24,12 @@ pub enum VaultError {
     Corrupted(String),
     #[error("alias not found: {0}")]
     AliasNotFound(String),
+    #[error("alias '{0}' already exists")]
+    AliasExists(String),
     #[error("app not found: {0}")]
     AppNotFound(String),
+    #[error("app '{0}' already exists")]
+    AppExists(String),
     #[error("invalid alias '{0}': must match ^[a-z0-9][a-z0-9_-]{{0,62}}$")]
     InvalidAlias(String),
     #[error("{0}")]
@@ -65,6 +72,8 @@ pub struct VaultMeta {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecretEntry {
+    #[serde(default)]
+    pub id: String,
     pub key: String,
     pub value: String,
     #[serde(default)]
@@ -77,6 +86,8 @@ pub struct SecretEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppEntry {
+    #[serde(default)]
+    pub id: String,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -97,6 +108,7 @@ struct VaultFile {
 }
 
 pub struct SecretInfo {
+    pub id: String,
     pub alias: String,
     pub key: String,
     pub description: String,
@@ -106,10 +118,18 @@ pub struct SecretInfo {
 }
 
 pub struct AppInfo {
+    pub id: String,
     pub name: String,
     pub description: String,
     pub app_path: String,
     pub secret_count: usize,
+}
+
+pub struct AppSecretBinding {
+    pub secret_id: String,
+    pub alias: String,
+    pub key: String,
+    pub injected_as: String,
 }
 
 pub struct VaultStore {
@@ -121,6 +141,18 @@ pub struct VaultStore {
 
 fn now_iso() -> String {
     Utc::now().to_rfc3339()
+}
+
+fn generate_prefixed_id(prefix: &str) -> String {
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    let mut encoded = String::with_capacity(prefix.len() + bytes.len() * 2);
+    encoded.push_str(prefix);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut encoded, "{byte:02x}");
+    }
+    encoded
 }
 
 fn creator() -> String {
@@ -155,6 +187,143 @@ fn validate_app_name(name: &str) -> Result<(), VaultError> {
 }
 
 impl VaultStore {
+    fn next_unique_id(prefix: &str, used: &mut HashSet<String>) -> String {
+        loop {
+            let candidate = generate_prefixed_id(prefix);
+            if used.insert(candidate.clone()) {
+                return candidate;
+            }
+        }
+    }
+
+    fn next_secret_id(&self) -> String {
+        let mut used: HashSet<String> = self
+            .data
+            .secrets
+            .values()
+            .filter_map(|entry| {
+                if entry.id.is_empty() {
+                    None
+                } else {
+                    Some(entry.id.clone())
+                }
+            })
+            .collect();
+        Self::next_unique_id(SECRET_ID_PREFIX, &mut used)
+    }
+
+    fn next_app_id(&self) -> String {
+        let mut used: HashSet<String> = self
+            .data
+            .apps
+            .values()
+            .filter_map(|entry| {
+                if entry.id.is_empty() {
+                    None
+                } else {
+                    Some(entry.id.clone())
+                }
+            })
+            .collect();
+        Self::next_unique_id(APP_ID_PREFIX, &mut used)
+    }
+
+    fn find_secret_by_ref(&self, secret_ref: &str) -> Option<(&str, &SecretEntry)> {
+        if let Some((alias, entry)) = self.data.secrets.get_key_value(secret_ref) {
+            return Some((alias.as_str(), entry));
+        }
+
+        self.data
+            .secrets
+            .iter()
+            .find(|(_, entry)| entry.id == secret_ref)
+            .map(|(alias, entry)| (alias.as_str(), entry))
+    }
+
+    fn app_references_secret(app: &AppEntry, alias: &str, secret_id: &str) -> bool {
+        app.secrets
+            .iter()
+            .any(|secret_ref| secret_ref == alias || secret_ref == secret_id)
+    }
+
+    fn app_override_for_secret<'a>(
+        app: &'a AppEntry,
+        alias: &str,
+        secret_id: &str,
+    ) -> Option<&'a String> {
+        app.overrides
+            .get(secret_id)
+            .or_else(|| app.overrides.get(alias))
+    }
+
+    fn migrate_in_place(&mut self) -> Result<(), VaultError> {
+        let mut used_secret_ids = HashSet::new();
+        for entry in self.data.secrets.values_mut() {
+            if entry.id.is_empty() {
+                entry.id = Self::next_unique_id(SECRET_ID_PREFIX, &mut used_secret_ids);
+            } else if !used_secret_ids.insert(entry.id.clone()) {
+                return Err(VaultError::Corrupted(format!(
+                    "duplicate secret id '{}'",
+                    entry.id
+                )));
+            }
+        }
+
+        let alias_to_id: BTreeMap<String, String> = self
+            .data
+            .secrets
+            .iter()
+            .map(|(alias, entry)| (alias.clone(), entry.id.clone()))
+            .collect();
+
+        let mut used_app_ids = HashSet::new();
+        for app in self.data.apps.values_mut() {
+            if app.id.is_empty() {
+                app.id = Self::next_unique_id(APP_ID_PREFIX, &mut used_app_ids);
+            } else if !used_app_ids.insert(app.id.clone()) {
+                return Err(VaultError::Corrupted(format!(
+                    "duplicate app id '{}'",
+                    app.id
+                )));
+            }
+
+            let mut seen_refs = HashSet::new();
+            let mut normalized_refs = Vec::with_capacity(app.secrets.len());
+            for secret_ref in &app.secrets {
+                let normalized = alias_to_id
+                    .get(secret_ref)
+                    .cloned()
+                    .unwrap_or_else(|| secret_ref.clone());
+                if seen_refs.insert(normalized.clone()) {
+                    normalized_refs.push(normalized);
+                }
+            }
+            app.secrets = normalized_refs;
+
+            let mut normalized_overrides = BTreeMap::new();
+            for (secret_ref, env_name) in &app.overrides {
+                let normalized = alias_to_id
+                    .get(secret_ref)
+                    .cloned()
+                    .unwrap_or_else(|| secret_ref.clone());
+                if let Some(existing) = normalized_overrides.get(&normalized) {
+                    if existing != env_name {
+                        return Err(VaultError::Corrupted(format!(
+                            "conflicting override values for secret reference '{}'",
+                            normalized
+                        )));
+                    }
+                    continue;
+                }
+                normalized_overrides.insert(normalized, env_name.clone());
+            }
+            app.overrides = normalized_overrides;
+        }
+
+        self.data._meta.format_version = FORMAT_VERSION.into();
+        Ok(())
+    }
+
     pub fn create(
         path: &str,
         password: &str,
@@ -231,7 +400,7 @@ impl VaultStore {
         )
         .map_err(|e| VaultError::Auth(e.to_string()))?;
 
-        let store = Self {
+        let mut store = Self {
             path: path.into(),
             data,
             enc_key: zeroize::Zeroizing::new(enc_key),
@@ -253,10 +422,12 @@ impl VaultStore {
             return Err(VaultError::Corrupted("HMAC verification failed".into()));
         }
 
+        store.migrate_in_place()?;
         Ok(store)
     }
 
     pub fn save(&mut self) -> Result<(), VaultError> {
+        self.migrate_in_place()?;
         let canonical = self.canonical_data();
         let mac = vault_crypto::compute_hmac(&self.hmac_key, &canonical)
             .map_err(|e| VaultError::Crypto(e.to_string()))?;
@@ -285,15 +456,20 @@ impl VaultStore {
         let encrypted = vault_crypto::encrypt_value(&self.enc_key, value, alias)
             .map_err(|e| VaultError::Crypto(e.to_string()))?;
         let now = now_iso();
-        let created = self
-            .data
-            .secrets
-            .get(alias)
+        let existing = self.data.secrets.get(alias).cloned();
+        let created = existing
+            .as_ref()
             .map(|s| s.created_at.clone())
             .unwrap_or_else(|| now.clone());
+        let id = existing
+            .as_ref()
+            .filter(|entry| !entry.id.is_empty())
+            .map(|entry| entry.id.clone())
+            .unwrap_or_else(|| self.next_secret_id());
         self.data.secrets.insert(
             alias.into(),
             SecretEntry {
+                id,
                 key: key.into(),
                 value: encrypted,
                 description: description.into(),
@@ -333,6 +509,7 @@ impl VaultStore {
         self.data.secrets.insert(
             alias.into(),
             SecretEntry {
+                id: entry.id,
                 key: key.into(),
                 value: encrypted,
                 description: description.into(),
@@ -355,32 +532,46 @@ impl VaultStore {
     }
 
     pub fn delete(&mut self, alias: &str) -> Result<(), VaultError> {
-        if self.data.secrets.remove(alias).is_none() {
-            return Err(VaultError::AliasNotFound(alias.into()));
-        }
+        let removed = self
+            .data
+            .secrets
+            .remove(alias)
+            .ok_or_else(|| VaultError::AliasNotFound(alias.into()))?;
         for app in self.data.apps.values_mut() {
-            app.secrets.retain(|a| a != alias);
+            app.secrets
+                .retain(|secret_ref| secret_ref != alias && secret_ref != &removed.id);
             app.overrides.remove(alias);
+            if !removed.id.is_empty() {
+                app.overrides.remove(&removed.id);
+            }
         }
         Ok(())
     }
 
     pub fn list(&self, app: Option<&str>) -> Result<Vec<SecretInfo>, VaultError> {
-        let filter_aliases: Option<std::collections::HashSet<&str>> = match app {
+        let filter_aliases: Option<HashSet<String>> = match app {
             Some(name) => {
                 let ad = self
                     .data
                     .apps
                     .get(name)
                     .ok_or_else(|| VaultError::AppNotFound(name.into()))?;
-                Some(ad.secrets.iter().map(|s| s.as_str()).collect())
+                Some(
+                    ad.secrets
+                        .iter()
+                        .filter_map(|secret_ref| {
+                            self.find_secret_by_ref(secret_ref)
+                                .map(|(alias, _)| alias.to_owned())
+                        })
+                        .collect(),
+                )
             }
             None => None,
         };
         let mut result = Vec::new();
         for (alias, entry) in &self.data.secrets {
             if let Some(ref filter) = filter_aliases {
-                if !filter.contains(alias.as_str()) {
+                if !filter.contains(alias) {
                     continue;
                 }
             }
@@ -388,10 +579,11 @@ impl VaultStore {
                 .data
                 .apps
                 .iter()
-                .filter(|(_, ad)| ad.secrets.contains(alias))
+                .filter(|(_, ad)| Self::app_references_secret(ad, alias, &entry.id))
                 .map(|(name, _)| name.clone())
                 .collect();
             result.push(SecretInfo {
+                id: entry.id.clone(),
                 alias: alias.clone(),
                 key: entry.key.clone(),
                 description: entry.description.clone(),
@@ -410,9 +602,12 @@ impl VaultStore {
         override_key: Option<&str>,
     ) -> Result<(), VaultError> {
         validate_app_name(app)?;
-        if !self.data.secrets.contains_key(alias) {
-            return Err(VaultError::AliasNotFound(alias.into()));
-        }
+        let secret_id = self
+            .data
+            .secrets
+            .get(alias)
+            .map(|entry| entry.id.clone())
+            .ok_or_else(|| VaultError::AliasNotFound(alias.into()))?;
         if !self.data.apps.contains_key(app) {
             self.create_app(app, "", "")?;
         }
@@ -421,26 +616,74 @@ impl VaultStore {
             .apps
             .get_mut(app)
             .ok_or_else(|| VaultError::AppNotFound(app.into()))?;
-        if !ad.secrets.contains(&alias.to_string()) {
-            ad.secrets.push(alias.into());
+        let mut normalized_refs = Vec::with_capacity(ad.secrets.len() + 1);
+        let mut seen = false;
+        for secret_ref in &ad.secrets {
+            if secret_ref == alias || secret_ref == &secret_id {
+                if !seen {
+                    normalized_refs.push(secret_id.clone());
+                    seen = true;
+                }
+            } else {
+                normalized_refs.push(secret_ref.clone());
+            }
         }
+        if !seen {
+            normalized_refs.push(secret_id.clone());
+        }
+        ad.secrets = normalized_refs;
+        ad.overrides.remove(alias);
+        ad.overrides.remove(&secret_id);
         if let Some(k) = override_key {
-            ad.overrides.insert(alias.into(), k.into());
-        } else {
-            ad.overrides.remove(alias);
+            ad.overrides.insert(secret_id, k.into());
         }
         Ok(())
     }
 
     pub fn unassign(&mut self, app: &str, alias: &str) -> Result<(), VaultError> {
+        let secret_id = self.data.secrets.get(alias).map(|entry| entry.id.clone());
         let ad = self
             .data
             .apps
             .get_mut(app)
             .ok_or_else(|| VaultError::AppNotFound(app.into()))?;
-        ad.secrets.retain(|a| a != alias);
+        ad.secrets.retain(|secret_ref| {
+            if secret_ref == alias {
+                return false;
+            }
+            if let Some(secret_id) = &secret_id {
+                return secret_ref != secret_id;
+            }
+            true
+        });
         ad.overrides.remove(alias);
+        if let Some(secret_id) = secret_id {
+            ad.overrides.remove(&secret_id);
+        }
         Ok(())
+    }
+
+    pub fn get_app_secret_bindings(&self, app: &str) -> Result<Vec<AppSecretBinding>, VaultError> {
+        let ad = self
+            .data
+            .apps
+            .get(app)
+            .ok_or_else(|| VaultError::AppNotFound(app.into()))?;
+        let mut bindings = Vec::new();
+        for secret_ref in &ad.secrets {
+            if let Some((alias, entry)) = self.find_secret_by_ref(secret_ref) {
+                let injected_as = Self::app_override_for_secret(ad, alias, &entry.id)
+                    .cloned()
+                    .unwrap_or_else(|| entry.key.clone());
+                bindings.push(AppSecretBinding {
+                    secret_id: entry.id.clone(),
+                    alias: alias.to_owned(),
+                    key: entry.key.clone(),
+                    injected_as,
+                });
+            }
+        }
+        Ok(bindings)
     }
 
     pub fn get_app_secrets(&self, app: &str) -> Result<BTreeMap<String, String>, VaultError> {
@@ -450,9 +693,10 @@ impl VaultStore {
             .get(app)
             .ok_or_else(|| VaultError::AppNotFound(app.into()))?;
         let mut result = BTreeMap::new();
-        for alias in &ad.secrets {
-            if let Some(entry) = self.data.secrets.get(alias) {
-                let env_name = ad.overrides.get(alias).unwrap_or(&entry.key);
+        for secret_ref in &ad.secrets {
+            if let Some((alias, entry)) = self.find_secret_by_ref(secret_ref) {
+                let env_name =
+                    Self::app_override_for_secret(ad, alias, &entry.id).unwrap_or(&entry.key);
                 let plaintext = vault_crypto::decrypt_value(&self.enc_key, &entry.value, alias)
                     .map_err(|e| VaultError::Crypto(e.to_string()))?;
                 result.insert(env_name.clone(), plaintext);
@@ -469,20 +713,82 @@ impl VaultStore {
     ) -> Result<(), VaultError> {
         validate_app_name(app)?;
         if self.data.apps.contains_key(app) {
-            return Err(VaultError::AppNotFound(format!(
-                "app '{}' already exists",
-                app
-            )));
+            return Err(VaultError::AppExists(app.into()));
         }
         self.data.apps.insert(
             app.into(),
             AppEntry {
+                id: self.next_app_id(),
                 description: description.into(),
                 app_path: app_path.into(),
                 secrets: Vec::new(),
                 overrides: BTreeMap::new(),
             },
         );
+        Ok(())
+    }
+
+    pub fn rename_secret(&mut self, alias: &str, new_alias: &str) -> Result<(), VaultError> {
+        validate_alias(new_alias)?;
+        if alias == new_alias {
+            return Ok(());
+        }
+        if self.data.secrets.contains_key(new_alias) {
+            return Err(VaultError::AliasExists(new_alias.into()));
+        }
+
+        let mut entry = self
+            .data
+            .secrets
+            .remove(alias)
+            .ok_or_else(|| VaultError::AliasNotFound(alias.into()))?;
+        let plaintext = vault_crypto::decrypt_value(&self.enc_key, &entry.value, alias)
+            .map_err(|e| VaultError::Crypto(e.to_string()))?;
+        entry.value = vault_crypto::encrypt_value(&self.enc_key, &plaintext, new_alias)
+            .map_err(|e| VaultError::Crypto(e.to_string()))?;
+        entry.updated_at = now_iso();
+        let secret_id = entry.id.clone();
+        self.data.secrets.insert(new_alias.into(), entry);
+
+        for app in self.data.apps.values_mut() {
+            let mut normalized_refs = Vec::with_capacity(app.secrets.len());
+            let mut seen = HashSet::new();
+            for secret_ref in &app.secrets {
+                let normalized = if secret_ref == alias {
+                    secret_id.clone()
+                } else {
+                    secret_ref.clone()
+                };
+                if seen.insert(normalized.clone()) {
+                    normalized_refs.push(normalized);
+                }
+            }
+            app.secrets = normalized_refs;
+
+            if let Some(override_key) = app.overrides.remove(alias) {
+                app.overrides
+                    .entry(secret_id.clone())
+                    .or_insert(override_key);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn rename_app(&mut self, app: &str, new_name: &str) -> Result<(), VaultError> {
+        validate_app_name(new_name)?;
+        if app == new_name {
+            return Ok(());
+        }
+        if self.data.apps.contains_key(new_name) {
+            return Err(VaultError::AppExists(new_name.into()));
+        }
+        let entry = self
+            .data
+            .apps
+            .remove(app)
+            .ok_or_else(|| VaultError::AppNotFound(app.into()))?;
+        self.data.apps.insert(new_name.into(), entry);
         Ok(())
     }
 
@@ -515,6 +821,7 @@ impl VaultStore {
             .apps
             .iter()
             .map(|(name, ad)| AppInfo {
+                id: ad.id.clone(),
                 name: name.clone(),
                 description: ad.description.clone(),
                 app_path: ad.app_path.clone(),
@@ -546,6 +853,9 @@ impl VaultStore {
             self.data._meta.kdf.parallelism
         ));
         for (alias, s) in &self.data.secrets {
+            if !s.id.is_empty() {
+                parts.push(format!("secrets:{alias}:id={}", s.id));
+            }
             parts.push(format!("secrets:{alias}:key={}", s.key));
             parts.push(format!("secrets:{alias}:value={}", s.value));
             parts.push(format!("secrets:{alias}:description={}", s.description));
@@ -554,11 +864,14 @@ impl VaultStore {
             parts.push(format!("secrets:{alias}:tags={}", sorted_tags.join(",")));
         }
         for (app_name, ad) in &self.data.apps {
-            let mut sorted_aliases = ad.secrets.clone();
-            sorted_aliases.sort();
+            if !ad.id.is_empty() {
+                parts.push(format!("apps:{app_name}:id={}", ad.id));
+            }
+            let mut sorted_secret_refs = ad.secrets.clone();
+            sorted_secret_refs.sort();
             parts.push(format!(
                 "apps:{app_name}:secrets={}",
-                sorted_aliases.join(",")
+                sorted_secret_refs.join(",")
             ));
             parts.push(format!("apps:{app_name}:description={}", ad.description));
             parts.push(format!("apps:{app_name}:app_path={}", ad.app_path));
@@ -575,6 +888,7 @@ impl VaultStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroizing;
 
     fn fast_kdf() -> KdfParams {
         KdfParams {
@@ -585,6 +899,28 @@ mod tests {
         }
     }
 
+    fn rewrite_vault_with_valid_hmac(path: &str, password: &str, raw: serde_json::Value) {
+        let mut data: VaultFile = serde_json::from_value(raw).unwrap();
+        let salt = B64.decode(&data._meta.salt).unwrap();
+        let (enc_key, hmac_key) = vault_crypto::derive_key(
+            password,
+            &salt,
+            data._meta.kdf.memory_cost,
+            data._meta.kdf.time_cost,
+            data._meta.kdf.parallelism,
+        )
+        .unwrap();
+        let store = VaultStore {
+            path: path.into(),
+            data: data.clone(),
+            enc_key: Zeroizing::new(enc_key),
+            hmac_key: Zeroizing::new(hmac_key),
+        };
+        let mac = vault_crypto::compute_hmac(&store.hmac_key, &store.canonical_data()).unwrap();
+        data._meta.hmac = B64.encode(&mac);
+        std::fs::write(path, serde_json::to_string_pretty(&data).unwrap()).unwrap();
+    }
+
     #[test]
     fn create_and_load() {
         let dir = tempfile::tempdir().unwrap();
@@ -593,6 +929,67 @@ mod tests {
         VaultStore::create(ps, "pw", Some(fast_kdf())).unwrap();
         let store = VaultStore::load(ps, "pw").unwrap();
         assert!(store.list(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn load_migrates_legacy_alias_references_and_persists_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir
+            .path()
+            .join("legacy.vault.json")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store
+            .set("db", "DATABASE_URL", "postgres://x", "", &[])
+            .unwrap();
+        store.create_app("backend", "backend", "./run.sh").unwrap();
+        store.assign("backend", "db", Some("BACKEND_DB")).unwrap();
+        store.save().unwrap();
+        drop(store);
+
+        let mut raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&ps).unwrap()).unwrap();
+        let secret_id = raw["secrets"]["db"]["id"].as_str().unwrap().to_string();
+        let app_id = raw["apps"]["backend"]["id"].as_str().unwrap().to_string();
+        raw["_meta"]["format_version"] = serde_json::Value::String("2.0".into());
+        raw["secrets"]["db"].as_object_mut().unwrap().remove("id");
+        raw["apps"]["backend"].as_object_mut().unwrap().remove("id");
+        raw["apps"]["backend"]["secrets"] = serde_json::json!(["db"]);
+        raw["apps"]["backend"]["overrides"] = serde_json::json!({"db": "BACKEND_DB"});
+        rewrite_vault_with_valid_hmac(&ps, "pw", raw);
+
+        let mut loaded = VaultStore::load(&ps, "pw").unwrap();
+        let secrets = loaded.list(None).unwrap();
+        let apps = loaded.list_apps();
+        let bindings = loaded.get_app_secret_bindings("backend").unwrap();
+
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(bindings.len(), 1);
+        assert!(!secrets[0].id.is_empty());
+        assert!(!apps[0].id.is_empty());
+        assert_eq!(bindings[0].alias, "db");
+        assert_eq!(bindings[0].injected_as, "BACKEND_DB");
+        assert_ne!(secrets[0].id, secret_id);
+        assert_ne!(apps[0].id, app_id);
+
+        loaded.save().unwrap();
+        let upgraded: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&ps).unwrap()).unwrap();
+        let upgraded_secret_id = upgraded["secrets"]["db"]["id"].as_str().unwrap();
+        let upgraded_app_id = upgraded["apps"]["backend"]["id"].as_str().unwrap();
+        assert_eq!(
+            upgraded["apps"]["backend"]["secrets"][0],
+            upgraded_secret_id
+        );
+        assert_eq!(
+            upgraded["apps"]["backend"]["overrides"][upgraded_secret_id],
+            "BACKEND_DB"
+        );
+        assert!(upgraded_secret_id.starts_with(SECRET_ID_PREFIX));
+        assert!(upgraded_app_id.starts_with(APP_ID_PREFIX));
     }
 
     #[test]
@@ -993,6 +1390,83 @@ mod tests {
     }
 
     #[test]
+    fn rename_secret_preserves_assignments_and_override_bindings() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir
+            .path()
+            .join("rename-secret.vault.json")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store
+            .set("db", "DATABASE_URL", "postgres://x", "desc", &[])
+            .unwrap();
+        store.create_app("backend", "backend", "./run.sh").unwrap();
+        store.assign("backend", "db", Some("BACKEND_DB")).unwrap();
+        let original_id = store.list(None).unwrap()[0].id.clone();
+
+        store.rename_secret("db", "primary-db").unwrap();
+        store.save().unwrap();
+
+        let store = VaultStore::load(&ps, "pw").unwrap();
+        let secrets = store.list(None).unwrap();
+        let bindings = store.get_app_secret_bindings("backend").unwrap();
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0].alias, "primary-db");
+        assert_eq!(secrets[0].id, original_id);
+        assert_eq!(store.get("primary-db").unwrap(), "postgres://x");
+        assert!(matches!(store.get("db"), Err(VaultError::AliasNotFound(_))));
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].alias, "primary-db");
+        assert_eq!(bindings[0].secret_id, original_id);
+        assert_eq!(bindings[0].injected_as, "BACKEND_DB");
+        assert_eq!(
+            store.get_app_secrets("backend").unwrap()["BACKEND_DB"],
+            "postgres://x"
+        );
+    }
+
+    #[test]
+    fn rename_app_preserves_id_path_and_secret_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir
+            .path()
+            .join("rename-app.vault.json")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.set("api", "API_KEY", "secret", "", &[]).unwrap();
+        store
+            .create_app("backend", "backend", "./bin/run-backend")
+            .unwrap();
+        store.assign("backend", "api", Some("RENAMED_KEY")).unwrap();
+        let original_app_id = store.list_apps()[0].id.clone();
+
+        store.rename_app("backend", "api-service").unwrap();
+        store.save().unwrap();
+
+        let store = VaultStore::load(&ps, "pw").unwrap();
+        let apps = store.list_apps();
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "api-service");
+        assert_eq!(apps[0].id, original_app_id);
+        assert_eq!(
+            store.get_app_path("api-service").unwrap(),
+            "./bin/run-backend"
+        );
+        assert!(matches!(
+            store.get_app_path("backend"),
+            Err(VaultError::AppNotFound(_))
+        ));
+        assert_eq!(
+            store.get_app_secrets("api-service").unwrap()["RENAMED_KEY"],
+            "secret"
+        );
+    }
+
+    #[test]
     fn create_app_rejects_duplicate() {
         let dir = tempfile::tempdir().unwrap();
         let ps = dir.path().join("v.json").to_str().unwrap().to_string();
@@ -1002,5 +1476,37 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.err().expect("expected Err").to_string();
         assert!(err_msg.contains("already exists"), "got: {err_msg}");
+    }
+
+    #[test]
+    fn rename_secret_rejects_existing_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir
+            .path()
+            .join("rename-conflict.vault.json")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.set("db", "DATABASE_URL", "a", "", &[]).unwrap();
+        store.set("redis", "REDIS_URL", "b", "", &[]).unwrap();
+        let result = store.rename_secret("db", "redis");
+        assert!(matches!(result, Err(VaultError::AliasExists(_))));
+    }
+
+    #[test]
+    fn rename_app_rejects_existing_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir
+            .path()
+            .join("rename-app-conflict.vault.json")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let mut store = VaultStore::create(&ps, "pw", Some(fast_kdf())).unwrap();
+        store.create_app("backend", "", "").unwrap();
+        store.create_app("worker", "", "").unwrap();
+        let result = store.rename_app("backend", "worker");
+        assert!(matches!(result, Err(VaultError::AppExists(_))));
     }
 }

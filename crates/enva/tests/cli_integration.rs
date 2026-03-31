@@ -1,6 +1,9 @@
 mod common;
 
-use common::{create_test_vault, enva_cmd, vault_assign, vault_set};
+use common::{
+    create_test_vault, enva_cmd, rename_app_in_vault, rename_secret_in_vault, vault_assign,
+    vault_assign_with_override, vault_set,
+};
 use predicates::prelude::*;
 use std::fs;
 
@@ -204,6 +207,87 @@ fn app_injection_exec() {
         .assert()
         .success()
         .stdout(predicate::str::contains("injected_value"));
+}
+
+#[test]
+fn renamed_secret_alias_preserves_dry_run_and_exec_injection() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    vault_set(vps, "testpass", "db", "DATABASE_URL", "postgres://renamed");
+    vault_assign_with_override(vps, "testpass", "db", "backend", "BACKEND_DB");
+    rename_secret_in_vault(vps, "testpass", "db", "primary-db");
+
+    enva_cmd()
+        .args(["--vault", vps, "--password-stdin", "backend"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("BACKEND_DB"))
+        .stdout(predicate::str::contains("<redacted>"));
+
+    enva_cmd()
+        .args([
+            "--vault",
+            vps,
+            "--password-stdin",
+            "backend",
+            "--",
+            "printenv",
+            "BACKEND_DB",
+        ])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("postgres://renamed"));
+
+    enva_cmd()
+        .args(["vault", "get", "primary-db"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("postgres://renamed"));
+
+    enva_cmd()
+        .args(["vault", "get", "db"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn renamed_app_name_preserves_exec_injection_for_new_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    vault_set(vps, "testpass", "api-key", "API_KEY", "renamed-app-secret");
+    vault_assign_with_override(vps, "testpass", "api-key", "backend", "RENAMED_KEY");
+    rename_app_in_vault(vps, "testpass", "backend", "api-service");
+
+    enva_cmd()
+        .args([
+            "--vault",
+            vps,
+            "--password-stdin",
+            "api-service",
+            "--",
+            "printenv",
+            "RENAMED_KEY",
+        ])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("renamed-app-secret"));
+
+    enva_cmd()
+        .args(["--vault", vps, "--password-stdin", "backend"])
+        .write_stdin("testpass\n")
+        .assert()
+        .failure();
 }
 
 #[test]

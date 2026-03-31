@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-31
+
+### Added
+
+- **Web SSH management**: Added browser-driven SSH host discovery from `~/.ssh/config`, explicit host-list refresh, and web `deploy` / `sync-from` flows that reuse the existing validated SSH/SFTP transport.
+- **Rename-safe identity**: Added immutable internal ids for secrets and applications so aliases and app names can be edited without breaking assignments, overrides, or env injection.
+- **Release coverage**: Added migration, rename, SSH route, and CLI injection regressions to cover the new release surface end to end.
+
+### Changed
+
+- **Vault format**: Upgraded the runtime vault format to `2.1`, preserving alias- and app-name keyed UX while normalizing internal app secret references to stable ids on save.
+- **Web UX**: Expanded the built-in web UI with a `Remote` modal for SSH actions plus editable secret aliases and application names.
+- **Documentation**: Updated the README and vault format specifications to document the SSH workflow, stable-id migration model, and rename semantics.
+
+### Fixed
+
+- **Alias rename safety**: Secret alias renames now re-encrypt the ciphertext with the new alias-bound AAD so decrypted values remain valid after save.
+- **Binding persistence**: Secret and app renames now preserve override mappings, assigned secret references, and command injection behavior instead of orphaning them.
+
 ## [0.1.2] - 2026-03-30
 
 ### Added
@@ -52,7 +71,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.2.0
 [0.1.2]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.2
 [0.1.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.1
 [0.1.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.0
