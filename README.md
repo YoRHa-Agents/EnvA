@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.2"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.1.2-6366f1" alt="Changelog"></a>
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.2.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.2.0-6366f1" alt="Changelog"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="MIT license"></a>
 </p>
 
@@ -37,9 +37,20 @@ around by hand.
 - Local-first encrypted vault with AES-256-GCM at rest, Argon2id key derivation, and
   HMAC-SHA256 integrity checks.
 - App-aware secret injection so each application receives only the aliases assigned to it.
-- Built-in web UI for browsing, editing, assigning, importing, and exporting secrets.
+- Built-in web UI for browsing, editing, renaming, assigning, importing, and exporting secrets.
+- Web SSH management can read `~/.ssh/config`, refresh the discovered host list, and run
+  vault `deploy` / `sync-from` actions without leaving the UI.
 - Cross-platform release binaries plus `build.sh` for parallel multi-target packaging
   under `release/`.
+
+## New In v0.2.0
+
+- The web UI can now discover SSH hosts from `~/.ssh/config`, refresh the list on demand,
+  and run vault `deploy` / `sync-from` actions from the browser.
+- Secrets and applications now carry immutable internal ids so alias and app-name renames
+  preserve bindings, overrides, and runtime env injection behavior.
+- Regression coverage was expanded across vault migration, rename flows, web routes, and
+  CLI injection scenarios to harden the release.
 
 ## Demo Snapshots
 
@@ -147,6 +158,12 @@ enva                                     # http://127.0.0.1:8080
 enva serve --port 3000 --host 0.0.0.0   # custom bind
 ```
 
+The web UI now includes a `Remote` flow that reads SSH hosts from `~/.ssh/config`,
+supports `Host`, `HostName`, `User`, `Port`, and `IdentityFile`, and exposes only
+vault `deploy` / `sync-from` actions plus an explicit refresh button. When an
+`IdentityFile` is present it is reused automatically; otherwise the web flow falls
+back to the local SSH agent.
+
 ### App Injection
 
 Inject all secrets assigned to an app as environment variables, then exec a command:
@@ -200,6 +217,10 @@ enva vault self-test
 
 Vault and application paths accept `~`, relative, or absolute input. Relative paths are resolved from the current working directory at the moment `enva` runs. For direct `enva <APP>` launches, the vault-stored `app_path` takes precedence; if it is blank, `.enva.yaml` `apps.<name>.app_path` is used as a fallback.
 
+Each secret and application is also assigned an internal immutable id in the vault
+file so web-based alias or app-name renames preserve assignments, overrides, and
+runtime injection behavior across saves.
+
 ## Configuration
 
 Enva loads configuration from two levels:
@@ -243,6 +264,8 @@ cargo clippy --workspace -- -D warnings
 ## Documentation
 
 Design docs, API specs, vault format, and deployment guides are in [`docs/`](docs/).
+
+Last updated: `2026-03-31`
 
 For AI agents, see [`docs/agent-index.md`](docs/agent-index.md) for a structured
 command reference and workflow examples optimized for LLM consumption.

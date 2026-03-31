@@ -1,6 +1,8 @@
 # Vault File Format Specification
 
 > **摘要 (Chinese Summary):** 本文档定义了 Enva secrets vault 的磁盘文件格式——一个基于别名的密钥池和逐值 AES-256-GCM 加密的单一 JSON 文件。密钥通过人类可读别名标识并映射到环境变量名；应用通过别名引用密钥并可覆盖注入名。密码密钥派生使用 Argon2id (RFC 9106)。加密值采用 SOPS 风格的 `ENC[AES256_GCM,data:…,iv:…,tag:…,type:…]` 编码。文件级完整性通过 HMAC-SHA256 保护（覆盖所有别名、key、value、应用绑定及元数据的规范序列化）。格式自描述：KDF 参数、salt 和版本号嵌入 `_meta`。版本演进遵循语义化版本，minor 版本严格保证向前兼容。
+>
+> **Update (2026-03-30):** Runtime format `2.1` adds immutable `id` fields to every secret and application record. Top-level maps are still keyed by alias and app name for UX compatibility, but application secret bindings and override maps are normalized to secret ids on save so alias renames remain safe. Existing `2.0` vaults continue to load and are upgraded on save. The current loader-enforced minimum `kdf.memory_cost` is `8192` KiB.
 
 ---
 
@@ -18,7 +20,7 @@
 
 ## 1. Vault JSON Schema
 
-A vault file is a single UTF-8-encoded JSON file. The top level contains three fields: `_meta` (metadata), `secrets` (alias-based secrets pool), and `apps` (application reference configuration).
+A vault file is a single UTF-8-encoded JSON file. The top level contains three fields: `_meta` (metadata), `secrets` (alias-keyed secrets pool with immutable record ids), and `apps` (application reference configuration keyed by app name with immutable app ids).
 
 ### 1.1 Top-Level Structure
 
@@ -33,15 +35,15 @@ A vault file is a single UTF-8-encoded JSON file. The top level contains three f
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `_meta` | `object` | Yes | File metadata including encryption parameters, integrity checksum, and timestamps |
-| `secrets` | `object` | Yes | Alias-based secrets pool; keys are human-readable aliases, values are structs containing the env var name, encrypted value, and metadata |
-| `apps` | `object` | Yes | Application configuration; references secrets from the pool by alias, with optional injection name overrides |
+| `secrets` | `object` | Yes | Alias-keyed secrets pool; keys are human-readable aliases, values include an immutable `id`, the env var key, encrypted value, and metadata |
+| `apps` | `object` | Yes | Application configuration keyed by app name; each app carries an immutable `id` and stores secret bindings by secret id |
 
 ### 1.2 The `_meta` Object
 
 ```json
 {
   "_meta": {
-    "format_version": "2.0",
+    "format_version": "2.1",
     "kdf": {
       "algorithm": "argon2id",
       "memory_cost": 65536,
@@ -61,7 +63,7 @@ A vault file is a single UTF-8-encoded JSON file. The top level contains three f
 
 | Field Path | Type | Required | Description |
 |------------|------|----------|-------------|
-| `format_version` | `string` | Yes | Format version number following `major.minor` semver. Current version: `"2.0"` |
+| `format_version` | `string` | Yes | Format version number following `major.minor` semver. Current version: `"2.1"` |
 | `kdf` | `object` | Yes | Key derivation function parameters (self-describing; no external configuration needed for decryption) |
 | `kdf.algorithm` | `string` | Yes | KDF algorithm identifier. v2.x only permits `"argon2id"` |
 | `kdf.memory_cost` | `integer` | Yes | Argon2id memory cost in KiB. Recommended: `65536` (64 MiB) |
@@ -76,7 +78,7 @@ A vault file is a single UTF-8-encoded JSON file. The top level contains three f
 #### Constraints
 
 - `format_version` must match `^\d+\.\d+$`
-- `kdf.memory_cost` minimum: `16384` (16 MiB) — prevents intentional weakening
+- `kdf.memory_cost` minimum: `8192` (8 MiB) — current runtime-enforced lower bound
 - `kdf.time_cost` minimum: `1`
 - `kdf.parallelism` minimum: `1`
 - `salt` must decode to exactly 32 bytes
@@ -85,12 +87,13 @@ A vault file is a single UTF-8-encoded JSON file. The top level contains three f
 
 ### 1.3 The `secrets` Object
 
-An alias-based secrets pool. Each entry uses a human-readable alias as the key, with a struct value containing the environment variable name, encrypted value, and metadata. Multiple aliases may map to the same `key` (environment variable name), enabling management of the same variable across different environments or versions.
+An alias-keyed secrets pool. Each entry uses a human-readable alias as the map key and also carries an immutable `id` for stable internal references. Multiple aliases may map to the same `key` (environment variable name), enabling management of the same variable across different environments or versions.
 
 ```json
 {
   "secrets": {
     "prod-db": {
+      "id": "sec_4f6f8e9a1c2d3e4f5a6b7c8d9e0f1122",
       "key": "DATABASE_URL",
       "value": "ENC[AES256_GCM,data:cG9zdGdyZXM=,iv:YWJjZGVmZ2hpamts,tag:bW5vcHFyc3R1dnd4,type:str]",
       "description": "Production PostgreSQL",
@@ -114,6 +117,7 @@ An alias-based secrets pool. Each entry uses a human-readable alias as the key, 
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `id` | `string` | Yes | Immutable secret identifier used for rename-safe references inside app bindings and override maps |
 | `key` | `string` | Yes | Environment variable name used for injection. UPPER_SNAKE_CASE recommended. May duplicate across aliases |
 | `value` | `string` | Yes | `ENC[…]`-encoded encrypted value |
 | `description` | `string` | No | Human-readable description (default: `""`) |

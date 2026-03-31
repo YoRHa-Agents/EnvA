@@ -1,5 +1,6 @@
 mod config;
 mod paths;
+mod ssh_config;
 mod sync;
 mod vault;
 mod web;
@@ -366,7 +367,7 @@ fn run_app(cli: &Cli, args: &[String]) -> Result<(), Box<dyn std::error::Error>>
             #[cfg(unix)]
             {
                 use std::os::unix::process::CommandExt;
-                let err = std::process::Command::new(&app_path).envs(&resolved).exec();
+                let err = std::process::Command::new(app_path).envs(&resolved).exec();
                 return Err(Box::new(err));
             }
             #[cfg(not(unix))]
