@@ -1,98 +1,82 @@
 <p align="center">
-  <img src="docs/assets/branding/logo.svg" alt="Enva logo" width="320">
-</p>
-
-<h1 align="center">Enva</h1>
-
-<p align="center">
-  Encrypted environment variable manager with per-app injection and a built-in web UI.
+  <img src="docs/assets/branding/banner.svg" alt="Enva banner" width="720">
 </p>
 
 <p align="center">
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.3.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release" alt="Latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.3.0-6366f1" alt="Changelog"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="MIT license"></a>
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.3.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release&color=c4a35a" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.3.0-8b7355" alt="Changelog"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-e8e6e3" alt="MIT license"></a>
+  <a href="https://yorha-agents.github.io/EnvA/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-c4a35a" alt="Documentation"></a>
 </p>
 
 <p align="center">
-  <a href="#spotlight">Spotlight</a>
+  <a href="#-system-capabilities">Features</a>
   ·
-  <a href="#demo-snapshots">Demo Snapshots</a>
+  <a href="#-demo">Demo</a>
   ·
-  <a href="#installation">Installation</a>
+  <a href="#-deployment-protocol">Installation</a>
   ·
-  <a href="#quick-start">Quick Start</a>
+  <a href="#-operational-guide">Quick Start</a>
   ·
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases">Releases</a>
+  <a href="https://yorha-agents.github.io/EnvA/">Documentation</a>
+  ·
+  <a href="https://yorha-agents.github.io/EnvA/demo.html">Live Demo</a>
 </p>
 
-Enva stores secrets in a local AES-256-GCM encrypted vault, derives keys with Argon2id,
-verifies integrity with HMAC-SHA256, and injects resolved values into the exact app
-process that needs them. It is designed for teams that want a local-first workflow,
-strong crypto defaults, a fast CLI, and a clean web UI instead of passing `.env` files
-around by hand.
+---
 
-## Spotlight
+> **Pod 042 — Status Report:** Enva stores secrets in a local AES-256-GCM encrypted vault,
+> derives keys with Argon2id, verifies integrity with HMAC-SHA256, and injects resolved values
+> into the exact application process that needs them. Designed for operators who prefer a
+> local-first workflow, strong crypto defaults, a fast CLI, and a clean web UI over passing
+> `.env` files by hand.
 
-- Local-first encrypted vault with AES-256-GCM at rest, Argon2id key derivation, and
-  HMAC-SHA256 integrity checks.
-- App-aware secret injection so each application receives only the aliases assigned to it.
-- Built-in web UI for browsing, editing, renaming, assigning, importing, and exporting secrets.
-- Built-in self-update via `enva update` so installed binaries can track GitHub Releases
-  without rerunning the install script.
-- Web SSH management can read `~/.ssh/config`, persist additional web-managed hosts under
-  `~/.enva/ssh_hosts.json`, preview remote vault contents, and run full or selective
-  `deploy` / `sync-from` actions without leaving the UI.
-- Cross-platform release binaries plus `build.sh` for parallel multi-target packaging
-  under `release/`.
+## 「 System Capabilities 」
 
-## New In v0.3.0
+- **Encrypted Vault** — AES-256-GCM at rest, Argon2id key derivation, HMAC-SHA256 integrity
+  checks on every load.
+- **App-Aware Injection** — Each application receives only the secret aliases assigned to it.
+  Override env var names per-app without modifying the secret itself.
+- **Built-in Web UI** — Browse, edit, rename, assign, import, and export secrets through an
+  embedded web interface. No external dependencies.
+- **Self-Update** — `enva update` fetches the latest compatible binary from GitHub Releases,
+  verifies its SHA256 digest, and atomically replaces the installed executable.
+- **SSH Remote Sync** — Read `~/.ssh/config`, preview remote vault contents, and run selective
+  deploy/sync operations from the web UI.
+- **Cross-Platform** — Pre-built binaries for Linux x86_64, Linux aarch64, and macOS Apple
+  Silicon. Single static binary, zero runtime dependencies.
 
-- `enva update [--version <tag>] [--force]` fetches the matching binary from GitHub Releases,
-  verifies its size / SHA256 digest, and atomically replaces the current executable.
-- The web `Remote` modal can preview remote vault metadata, select specific secrets/apps for
-  sync or deploy, and manage additional SSH hosts stored in `~/.enva/ssh_hosts.json`.
-- The web settings modal can check whether a newer GitHub Release is available for the current
-  platform and point operators to the CLI update flow.
+## 「 Demo 」
 
-## Demo Snapshots
+**[Try the interactive demo →](https://yorha-agents.github.io/EnvA/demo.html)**
+
+Experience the full vault workflow in your browser — unlock, browse secrets, edit, assign to
+apps, import/export — all running client-side with no backend required.
 
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/assets/screenshots/login-dark.png" alt="Enva login screen in dark theme" width="100%">
+      <img src="docs/assets/screenshots/demo-login.svg" alt="Enva demo login" width="100%">
       <br>
-      <sub>Unlock or initialize the local vault from a focused, single-screen login flow.</sub>
+      <sub>Vault unlock screen — enter any password to access the simulation.</sub>
     </td>
     <td width="50%">
-      <img src="docs/assets/screenshots/secrets-overview-dark.png" alt="Enva secrets overview in dark theme" width="100%">
+      <img src="docs/assets/screenshots/demo-secrets.svg" alt="Enva demo secrets" width="100%">
       <br>
-      <sub>Browse the shared secrets pool, app assignments, tags, and usage state at a glance.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/screenshots/secret-editor-dark.png" alt="Enva secret editor modal in dark theme" width="100%">
-      <br>
-      <sub>Edit keys, values, tags, and app bindings without leaving the dashboard.</sub>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/screenshots/secrets-overview-light.png" alt="Enva secrets overview in light theme" width="100%">
-      <br>
-      <sub>Built-in light mode keeps the same structure for teams that prefer a brighter workspace.</sub>
+      <sub>Secrets overview — browse aliases, keys, tags, and app assignments.</sub>
     </td>
   </tr>
 </table>
 
-## Supported Platforms
+## 「 Supported Platforms 」
 
 | Platform | Architecture | Binary Name |
 |----------|-------------|-------------|
 | Linux | x86_64 | `enva-linux-x86_64` |
 | Linux | aarch64 | `enva-linux-aarch64` |
-| macOS | Apple Silicon (aarch64) | `enva-macos-aarch64` |
+| macOS | Apple Silicon | `enva-macos-aarch64` |
 
-## Installation
+## 「 Deployment Protocol 」
 
 ### Option A: Install Script (recommended)
 
@@ -118,8 +102,6 @@ sudo cp target/release/enva /usr/local/bin/
 
 ### Option C: Build Release Packages
 
-Generate one or more release artifacts under `release/`:
-
 ```bash
 ./build.sh linux-x86_64
 ./build.sh all
@@ -132,7 +114,7 @@ enva vault self-test
 enva update --help
 ```
 
-## Quick Start
+## 「 Operational Guide 」
 
 ```bash
 # 1. Create a vault
@@ -151,27 +133,18 @@ enva backend -- printenv DATABASE_URL
 enva backend
 ```
 
-## Usage
-
-### Default: Web UI
-
-Running `enva` with no arguments starts the built-in web configuration UI:
+### Web UI
 
 ```bash
 enva                                     # http://127.0.0.1:8080
 enva serve --port 3000 --host 0.0.0.0   # custom bind
 ```
 
-The web UI now includes a `Remote` flow that reads SSH hosts from `~/.ssh/config`,
-merges them with editable web-managed hosts stored in `~/.enva/ssh_hosts.json`,
-supports remote vault preview, selective sync/deploy, full diff/merge review, and
-legacy whole-vault `deploy` / `sync-from` actions. When an `IdentityFile` is
-present it is reused automatically; otherwise the web flow falls back to password
-auth for preview or the local SSH agent for full sync/deploy operations.
+The web UI includes SSH remote management: reads `~/.ssh/config`, supports web-managed hosts
+via `~/.enva/ssh_hosts.json`, remote vault preview, selective sync/deploy, diff/merge review,
+and legacy whole-vault deploy/sync-from actions.
 
 ### Self Update
-
-Use the built-in updater to fetch the latest compatible release asset from GitHub:
 
 ```bash
 enva update
@@ -179,26 +152,20 @@ enva update --version v0.3.0
 enva update --force
 ```
 
-The updater matches the current platform against the published release assets
-(`enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`), verifies the
-downloaded binary, and atomically replaces the installed executable in place.
-
 ### App Injection
-
-Inject all secrets assigned to an app as environment variables, then exec a command:
 
 ```bash
 enva backend -- ./start-server
 enva worker  -- node worker.js
 ```
 
-Dry-run (list what would be injected without running anything):
+Dry-run:
 
 ```bash
 enva backend
 ```
 
-For CI and scripting, pipe the password via stdin:
+For CI/scripting:
 
 ```bash
 echo "$VAULT_PASSWORD" | enva --password-stdin backend -- ./start-server
@@ -208,15 +175,13 @@ echo "$VAULT_PASSWORD" | enva --password-stdin backend -- ./start-server
 
 | Flag | Env Var | Description |
 |------|---------|-------------|
-| `--vault <PATH>` | `ENVA_VAULT_PATH` | Path to vault file; supports `~` and relative paths resolved from the current working directory |
+| `--vault <PATH>` | `ENVA_VAULT_PATH` | Path to vault file |
 | `--config <PATH>` | `ENVA_CONFIG` | Path to config file |
 | `--password-stdin` | | Read password from stdin |
 | `-q, --quiet` | | Suppress non-essential output |
 | `-v, --verbose` | | Enable debug-level logging |
 
 ### Vault Management
-
-All vault operations live under `enva vault`:
 
 ```bash
 enva vault init --vault ./project.vault.json
@@ -234,27 +199,17 @@ enva vault sync-from --from user@host:/path/to/vault.json [--ssh-port 22] [--ssh
 enva vault self-test
 ```
 
-Vault and application paths accept `~`, relative, or absolute input. Relative paths are resolved from the current working directory at the moment `enva` runs. For direct `enva <APP>` launches, the vault-stored `app_path` takes precedence; if it is blank, `.enva.yaml` `apps.<name>.app_path` is used as a fallback.
-
-Each secret and application is also assigned an internal immutable id in the vault
-file so web-based alias or app-name renames preserve assignments, overrides, and
-runtime injection behavior across saves.
-
-## Configuration
-
-Enva loads configuration from two levels:
+## 「 Configuration 」
 
 ### Global Config (`~/.enva/config.yaml`)
 
-User-wide defaults for vault path, password caching, KDF parameters, shell
-integration, web UI settings, and logging. See
-[`config/enva.example.yaml`](config/enva.example.yaml) for all options.
+User-wide defaults for vault path, password caching, KDF parameters, shell integration, web UI
+settings, and logging. See [`config/enva.example.yaml`](config/enva.example.yaml).
 
-### Project Config (`.enva.yaml` in project root)
+### Project Config (`.enva.yaml`)
 
-Per-project app definitions and vault path override. Committed to version
-control (contains no secret values). See
-[`config/enva.project.example.yaml`](config/enva.project.example.yaml).
+Per-project app definitions and vault path override. Committed to version control (no secrets).
+See [`config/enva.project.example.yaml`](config/enva.project.example.yaml).
 
 ### Environment Variables
 
@@ -264,14 +219,14 @@ control (contains no secret values). See
 | `ENVA_CONFIG` | Override config file path |
 | `ENVA_APP` | Override default app name |
 
-## Architecture
+## 「 Architecture 」
 
 | Crate | Description |
 |-------|-------------|
 | `enva-core` | Core library: AES-256-GCM, HKDF, Argon2id KDF, HMAC-SHA256, vault crypto, secret types, resolution |
 | `enva` | CLI binary (clap) plus embedded Axum web UI |
 
-## Development
+## 「 Development 」
 
 ```bash
 cargo test --workspace
@@ -280,15 +235,22 @@ cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
 ```
 
-## Documentation
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
-Design docs, API specs, vault format, and deployment guides are in [`docs/`](docs/).
+## 「 Documentation 」
+
+- **[GitHub Pages](https://yorha-agents.github.io/EnvA/)** — Project site with interactive demo
+- **[docs/](docs/)** — Design docs, API specs, vault format, deployment guides
+- **[docs/agent-index.md](docs/agent-index.md)** — Structured command reference for LLM consumption
 
 Last updated: `2026-03-31`
 
-For AI agents, see [`docs/agent-index.md`](docs/agent-index.md) for a structured
-command reference and workflow examples optimized for LLM consumption.
-
-## License
+## 「 License 」
 
 MIT
+
+---
+
+<p align="center">
+  <i>Glory to Mankind.</i>
+</p>
