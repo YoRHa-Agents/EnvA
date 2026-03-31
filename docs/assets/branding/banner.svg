@@ -27,6 +27,6 @@
   <line x1="620" y1="60" x2="760" y2="60" stroke="#3a3a36" stroke-width="0.5"/>
   <line x1="640" y1="70" x2="760" y2="70" stroke="#3a3a36" stroke-width="0.5"/>
   <rect x="756" y="96" width="8" height="8" transform="rotate(45 760 100)" fill="none" stroke="#c4a35a" stroke-width="1"/>
-  <text x="700" y="148" fill="#4a4a46" font-family="'Share Tech Mono',monospace" font-size="10" letter-spacing="2">v0.3.0</text>
+  <text x="700" y="148" fill="#4a4a46" font-family="'Share Tech Mono',monospace" font-size="10" letter-spacing="2">v0.4.0</text>
   <text x="620" y="90" fill="#3a3a36" font-family="'Share Tech Mono',monospace" font-size="9" letter-spacing="3">[ YORHA CLASSIFIED ]</text>
 </svg>
