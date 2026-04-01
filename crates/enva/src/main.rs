@@ -3,6 +3,7 @@ mod paths;
 mod ssh_config;
 mod ssh_hosts;
 mod sync;
+mod transfer;
 mod update;
 mod vault;
 mod web;
@@ -166,23 +167,27 @@ enum VaultCommands {
         #[arg(short, long)]
         app: String,
     },
-    /// Export resolved secrets for an app
+    /// Export secrets or portable bundles
     Export {
-        /// App name
+        /// App name to export. Omit for all-secrets export.
         #[arg(short, long)]
-        app: String,
-        /// Output format (env or json)
+        app: Option<String>,
+        /// Output format (env, json, enva-json, yaml)
         #[arg(short, long, default_value = "env")]
         format: String,
     },
-    /// Import secrets from a .env file
-    ImportEnv {
-        /// Path to .env file
+    /// Import secrets or portable bundles
+    #[command(name = "import", visible_alias = "import-env")]
+    Import {
+        /// Path to the import file
         #[arg(long = "from")]
         from_file: String,
-        /// App to assign imported secrets to
+        /// Input format. Inferred from the file extension when omitted.
         #[arg(short, long)]
-        app: String,
+        format: Option<String>,
+        /// App to assign flat env/json imports to. Omit to import into the pool only.
+        #[arg(short, long)]
+        app: Option<String>,
     },
     /// Upload the current vault to a remote SSH server
     Deploy {
@@ -699,42 +704,58 @@ fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::
             let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let store = vault::VaultStore::load(&vp, &pw)?;
-            let resolved = store.get_app_secrets(app)?;
-            match format.as_str() {
-                "json" => println!("{}", serde_json::to_string_pretty(&resolved)?),
-                _ => {
-                    for (k, v) in &resolved {
-                        println!("export {k}={v}");
-                    }
-                }
+            let output = transfer::export_text(
+                &store,
+                transfer::ExportOptions {
+                    format: transfer::TransferFormat::parse(format)?,
+                    app: app.as_deref(),
+                    shell_prefix: true,
+                },
+            )?;
+            if !output.is_empty() {
+                println!("{output}");
             }
         }
-        VaultCommands::ImportEnv { from_file, app } => {
+        VaultCommands::Import {
+            from_file,
+            format,
+            app,
+        } => {
             let vp = resolve_vault_path(cli)?;
             let pw = get_password(cli)?;
             let mut store = vault::VaultStore::load(&vp, &pw)?;
-            if store.list_apps().iter().all(|a| a.name != *app) {
-                store.create_app(app, "", "")?;
-            }
             let content = std::fs::read_to_string(from_file)?;
-            let mut count = 0u32;
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with('#') {
-                    continue;
-                }
-                if let Some((key, value)) = line.split_once('=') {
-                    let key = key.trim();
-                    let value = value.trim().trim_matches('"').trim_matches('\'');
-                    let alias = key.to_lowercase().replace('_', "-");
-                    store.set(&alias, key, value, "", &[])?;
-                    store.assign(app, &alias, None)?;
-                    count += 1;
-                }
-            }
+            let explicit_format = format
+                .as_deref()
+                .map(transfer::TransferFormat::parse)
+                .transpose()?;
+            let summary = transfer::import_text(
+                &mut store,
+                &content,
+                transfer::ImportOptions {
+                    format: explicit_format,
+                    source_name: Some(from_file.as_str()),
+                    target_app: app.as_deref(),
+                },
+            )?;
             store.save()?;
             if !cli.quiet {
-                println!("Imported {count} secrets into app '{app}'");
+                if summary.imported_apps > 0 {
+                    println!(
+                        "Imported {} secrets and {} apps from {} bundle",
+                        summary.imported_secrets, summary.imported_apps, summary.format
+                    );
+                } else if let Some(app_name) = app {
+                    println!(
+                        "Imported {} secrets into app '{}' from {}",
+                        summary.imported_secrets, app_name, summary.format
+                    );
+                } else {
+                    println!(
+                        "Imported {} secrets into the vault pool from {}",
+                        summary.imported_secrets, summary.format
+                    );
+                }
             }
         }
         VaultCommands::Deploy {

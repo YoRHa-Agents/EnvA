@@ -317,13 +317,14 @@ enva run --app backend --vault vault.json -- docker compose up
 echo "$VAULT_PASSWORD" | enva --password-stdin run --app backend --vault vault.json -- ./start.sh
 ```
 
-### `enva export` / `enva import-env`
+### `enva vault export` / `enva vault import`
 
 Export or import secrets.
 
 ```bash
-enva export --app backend --vault vault.json
-enva import-env --from-file .env.production --app backend --vault vault.json
+enva vault export --app backend --vault vault.json --format json
+enva vault import --from .env.production --app backend --vault vault.json
+enva vault import --from bundle.yaml --vault vault.json
 ```
 
 ### `enva serve`

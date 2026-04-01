@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-01
+
+### Added
+
+- **Portable bundle formats**: Added `enva-json` and `yaml` bundle import/export formats so Enva data can be moved between instances without manual conversion.
+- **Shared transfer layer**: Added a centralized import/export module to keep CLI, API, web UI, and demo format handling aligned.
+- **Import/export coverage**: Added CLI and web route regression tests for bundle round-trips, unsupported format validation, and cross-surface format behavior.
+
+### Changed
+
+- **CLI import/export**: `enva vault export` now supports `env`, flat `json`, `enva-json`, and `yaml`; `enva vault import` now imports flat env/json files or bundle files with inferred or explicit formats.
+- **Web UI and demo**: Expanded import/export selectors and previews to cover `.env`, flat JSON, Enva JSON bundles, and YAML bundles with matching terminology across both surfaces.
+- **Documentation**: Updated README, agent index, API specs, and user guides to reflect the new format matrix and command vocabulary.
+
 ## [0.4.0] - 2026-03-31
 
 ### Added
@@ -107,7 +121,9 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.5.0
+[0.4.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.4.0
 [0.3.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.3.0
 [0.2.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.2.0
 [0.1.2]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.1.2

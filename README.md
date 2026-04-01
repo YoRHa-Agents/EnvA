@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.4.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release&color=c4a35a" alt="Latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.4.0-8b7355" alt="Changelog"></a>
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.5.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release&color=c4a35a" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.5.0-8b7355" alt="Changelog"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-e8e6e3" alt="MIT license"></a>
   <a href="https://yorha-agents.github.io/EnvA/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-c4a35a" alt="Documentation"></a>
 </p>
@@ -148,7 +148,7 @@ and legacy whole-vault deploy/sync-from actions.
 
 ```bash
 enva update
-enva update --version v0.4.0
+enva update --version v0.5.0
 enva update --force
 ```
 
@@ -192,12 +192,14 @@ enva vault list [--app <name>]
 enva vault delete <alias> [--yes]
 enva vault assign <alias> --app <name> [--as <OVERRIDE_KEY>]
 enva vault unassign <alias> --app <name>
-enva vault export --app <name> [--format json]
-enva vault import-env --from .env --app <name>
+enva vault export [--app <name>] [--format env|json|enva-json|yaml]
+enva vault import --from <file> [--format env|json|enva-json|yaml] [--app <name>]
 enva vault deploy --to user@host:/path/to/vault.json [--ssh-port 22] [--ssh-key ~/.ssh/id_ed25519] [--overwrite]
 enva vault sync-from --from user@host:/path/to/vault.json [--ssh-port 22] [--ssh-password ...] [--overwrite]
 enva vault self-test
 ```
+
+`json` keeps the existing resolved key/value export. `enva-json` and `yaml` export portable Enva bundles that can be re-imported with `enva vault import`. `enva vault import-env` remains available as a compatibility alias for `.env`-style workflows.
 
 ## 「 Configuration 」
 

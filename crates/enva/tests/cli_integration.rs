@@ -522,6 +522,238 @@ fn vault_import_env_file() {
 }
 
 #[test]
+fn vault_export_enva_json_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    vault_set(vps, "testpass", "db-url", "DATABASE_URL", "postgres://bundle");
+    vault_set(vps, "testpass", "api-key", "API_KEY", "secret-token");
+    vault_assign_with_override(vps, "testpass", "db-url", "backend", "BACKEND_DB");
+    vault_assign(vps, "testpass", "api-key", "backend");
+
+    let output = enva_cmd()
+        .args(["vault", "export", "--app", "backend", "--format", "enva-json"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(parsed["schema"], "enva-bundle");
+    assert_eq!(parsed["version"], 1);
+    assert_eq!(parsed["apps"][0]["name"], "backend");
+    let bindings = parsed["apps"][0]["bindings"].as_array().unwrap();
+    assert!(bindings.iter().any(|binding| {
+        binding["alias"] == "db-url" && binding["injected_as"] == "BACKEND_DB"
+    }));
+}
+
+#[test]
+fn vault_export_yaml_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    vault_set(vps, "testpass", "db-url", "DATABASE_URL", "postgres://bundle");
+    vault_assign_with_override(vps, "testpass", "db-url", "backend", "BACKEND_DB");
+
+    let output = enva_cmd()
+        .args(["vault", "export", "--app", "backend", "--format", "yaml"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let parsed: serde_yaml::Value = serde_yaml::from_slice(&output).unwrap();
+    assert_eq!(parsed["schema"].as_str().unwrap(), "enva-bundle");
+    assert_eq!(parsed["version"].as_i64().unwrap(), 1);
+}
+
+#[test]
+fn vault_import_enva_json_bundle_round_trip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source_vault = create_test_vault(tmp.path(), "testpass");
+    let source_vault_str = source_vault.to_str().unwrap();
+
+    vault_set(
+        source_vault_str,
+        "testpass",
+        "db-url",
+        "DATABASE_URL",
+        "postgres://bundle",
+    );
+    vault_set(source_vault_str, "testpass", "api-key", "API_KEY", "secret-token");
+    vault_assign_with_override(source_vault_str, "testpass", "db-url", "backend", "BACKEND_DB");
+    vault_assign(source_vault_str, "testpass", "api-key", "backend");
+
+    let bundle_path = tmp.path().join("bundle.json");
+    let bundle_output = enva_cmd()
+        .args(["vault", "export", "--app", "backend", "--format", "enva-json"])
+        .args(["--vault", source_vault_str, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    fs::write(&bundle_path, &bundle_output).unwrap();
+
+    let target_vault = tmp.path().join("target.vault.json");
+    enva_cmd()
+        .args([
+            "vault",
+            "init",
+            "--vault",
+            target_vault.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("testpass\n")
+        .assert()
+        .success();
+
+    enva_cmd()
+        .args([
+            "vault",
+            "import",
+            "--from",
+            bundle_path.to_str().unwrap(),
+            "--vault",
+            target_vault.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 2 secrets and 1 apps"));
+
+    let imported = enva_cmd()
+        .args(["vault", "export", "--app", "backend", "--format", "json"])
+        .args(["--vault", target_vault.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let parsed: serde_json::Value = serde_json::from_slice(&imported).unwrap();
+    assert_eq!(parsed["BACKEND_DB"], "postgres://bundle");
+    assert_eq!(parsed["API_KEY"], "secret-token");
+}
+
+#[test]
+fn vault_import_yaml_bundle_round_trip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source_vault = create_test_vault(tmp.path(), "testpass");
+    let source_vault_str = source_vault.to_str().unwrap();
+
+    vault_set(
+        source_vault_str,
+        "testpass",
+        "db-url",
+        "DATABASE_URL",
+        "postgres://yaml",
+    );
+    vault_assign_with_override(source_vault_str, "testpass", "db-url", "backend", "BACKEND_DB");
+
+    let bundle_path = tmp.path().join("bundle.yaml");
+    let bundle_output = enva_cmd()
+        .args(["vault", "export", "--app", "backend", "--format", "yaml"])
+        .args(["--vault", source_vault_str, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    fs::write(&bundle_path, &bundle_output).unwrap();
+
+    let target_vault = tmp.path().join("target-yaml.vault.json");
+    enva_cmd()
+        .args([
+            "vault",
+            "init",
+            "--vault",
+            target_vault.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("testpass\n")
+        .assert()
+        .success();
+
+    enva_cmd()
+        .args([
+            "vault",
+            "import",
+            "--from",
+            bundle_path.to_str().unwrap(),
+            "--vault",
+            target_vault.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported 1 secrets and 1 apps"));
+
+    let imported = enva_cmd()
+        .args(["vault", "export", "--app", "backend", "--format", "json"])
+        .args(["--vault", target_vault.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let parsed: serde_json::Value = serde_json::from_slice(&imported).unwrap();
+    assert_eq!(parsed["BACKEND_DB"], "postgres://yaml");
+}
+
+#[test]
+fn vault_export_rejects_unsupported_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let vps = vp.to_str().unwrap();
+
+    enva_cmd()
+        .args(["vault", "export", "--format", "toml"])
+        .args(["--vault", vps, "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unsupported format"));
+}
+
+#[test]
+fn vault_import_rejects_unsupported_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vp = create_test_vault(tmp.path(), "testpass");
+    let env_file = tmp.path().join(".env");
+    fs::write(&env_file, "IMPORT_KEY=import_value\n").unwrap();
+
+    enva_cmd()
+        .args([
+            "vault",
+            "import",
+            "--from",
+            env_file.to_str().unwrap(),
+            "--format",
+            "toml",
+        ])
+        .args(["--vault", vp.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("testpass\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unsupported format"));
+}
+
+#[test]
 fn vault_list_with_app_filter() {
     let tmp = tempfile::tempdir().unwrap();
     let vp = create_test_vault(tmp.path(), "testpass");
@@ -818,8 +1050,8 @@ fn update_downloads_requested_release_into_override_binary_path() {
     let digest = sha256_hex(downloaded);
     let asset_path = format!("/downloads/{asset_name}");
     let release_body = serde_json::json!({
-        "tag_name": "v0.5.0",
-        "html_url": format!("{}/releases/v0.5.0", server.url()),
+        "tag_name": "v0.5.1",
+        "html_url": format!("{}/releases/v0.5.1", server.url()),
         "assets": [{
             "name": asset_name,
             "browser_download_url": format!("{}{}", server.url(), asset_path),
@@ -829,7 +1061,7 @@ fn update_downloads_requested_release_into_override_binary_path() {
     });
 
     let _release = server
-        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.5.0")
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.5.1")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(release_body.to_string())
@@ -842,12 +1074,12 @@ fn update_downloads_requested_release_into_override_binary_path() {
         .create();
 
     enva_cmd()
-        .args(["update", "--version", "v0.5.0"])
+        .args(["update", "--version", "v0.5.1"])
         .env("ENVA_UPDATE_API_BASE", server.url())
         .env("ENVA_UPDATE_BIN_PATH", &binary_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Updated enva to v0.5.0"));
+        .stdout(predicate::str::contains("Updated enva to v0.5.1"));
 
     assert_eq!(fs::read(&binary_path).unwrap(), downloaded);
 }
@@ -867,8 +1099,8 @@ fn update_reports_already_up_to_date_for_latest_release() {
     let digest = sha256_hex(downloaded);
     let asset_path = format!("/downloads/{asset_name}");
     let release_body = serde_json::json!({
-        "tag_name": "v0.4.0",
-        "html_url": format!("{}/releases/v0.4.0", server.url()),
+        "tag_name": "v0.5.0",
+        "html_url": format!("{}/releases/v0.5.0", server.url()),
         "assets": [{
             "name": asset_name,
             "browser_download_url": format!("{}{}", server.url(), asset_path),
@@ -890,7 +1122,7 @@ fn update_reports_already_up_to_date_for_latest_release() {
         .env("ENVA_UPDATE_BIN_PATH", &binary_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Already up to date (v0.4.0)"));
+        .stdout(predicate::str::contains("Already up to date (v0.5.0)"));
 
     assert_eq!(fs::read(&binary_path).unwrap(), b"old-binary");
 }
@@ -925,8 +1157,8 @@ fn update_missing_asset_returns_exit_code_6() {
 
     let mut server = Server::new();
     let release_body = serde_json::json!({
-        "tag_name": "v0.4.0",
-        "html_url": format!("{}/releases/v0.4.0", server.url()),
+        "tag_name": "v0.5.0",
+        "html_url": format!("{}/releases/v0.5.0", server.url()),
         "assets": [{
             "name": "enva-unsupported",
             "browser_download_url": format!("{}/downloads/enva-unsupported", server.url()),
@@ -936,14 +1168,14 @@ fn update_missing_asset_returns_exit_code_6() {
     });
 
     let _release = server
-        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.4.0")
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.5.0")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(release_body.to_string())
         .create();
 
     enva_cmd()
-        .args(["update", "--version", "v0.4.0"])
+        .args(["update", "--version", "v0.5.0"])
         .env("ENVA_UPDATE_API_BASE", server.url())
         .env("ENVA_UPDATE_BIN_PATH", &binary_path)
         .assert()

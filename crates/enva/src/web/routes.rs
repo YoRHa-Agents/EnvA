@@ -1,8 +1,8 @@
 //! API route handlers for the secrets manager web server.
 
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Multipart, Path, Query, State},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
@@ -20,6 +20,7 @@ use crate::{
     ssh_config::{self, SshConfigError, SshHostConfig},
     ssh_hosts::{self, ManagedSshHostsError},
     sync, update,
+    transfer,
     vault::{VaultError, VaultStore},
 };
 
@@ -394,6 +395,22 @@ fn update_error_response(error: update::UpdateError) -> (StatusCode, Json<ErrorR
     )
 }
 
+fn transfer_error_response(error: transfer::TransferError) -> (StatusCode, Json<ErrorResponse>) {
+    let status = match &error {
+        transfer::TransferError::Vault(VaultError::AppNotFound(_))
+        | transfer::TransferError::Vault(VaultError::AliasNotFound(_))
+        | transfer::TransferError::MissingExportScope => StatusCode::NOT_FOUND,
+        transfer::TransferError::Vault(VaultError::Corrupted(_)) => StatusCode::UNPROCESSABLE_ENTITY,
+        _ => StatusCode::BAD_REQUEST,
+    };
+    (
+        status,
+        Json(ErrorResponse {
+            error: error.to_string(),
+        }),
+    )
+}
+
 fn load_available_ssh_hosts(
     state: &AppState,
     force_refresh: bool,
@@ -612,6 +629,12 @@ struct ListQuery {
 }
 
 #[derive(Deserialize)]
+struct ExportQuery {
+    app: Option<String>,
+    format: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct RevealQuery {
     #[serde(default)]
     reveal: bool,
@@ -665,6 +688,8 @@ pub fn api_router(state: Arc<AppState>) -> Router {
         .route("/ssh/sync-from", post(sync_vault_from_ssh_host))
         .route("/vault/init", post(init_vault))
         .route("/secrets", get(list_secrets))
+        .route("/secrets/export", get(export_secrets))
+        .route("/secrets/import", post(import_secrets))
         .route("/secrets/{alias}", get(get_secret))
         .route("/secrets/{alias}", put(upsert_secret).patch(edit_secret))
         .route("/secrets/{alias}", delete(delete_secret))
@@ -1857,6 +1882,119 @@ async fn list_secrets(
     Ok(Json(result))
 }
 
+async fn export_secrets(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<ExportQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let store = get_store(&state)?;
+    let format = query
+        .format
+        .as_deref()
+        .map(transfer::TransferFormat::parse)
+        .transpose()
+        .map_err(transfer_error_response)?
+        .unwrap_or(transfer::TransferFormat::Env);
+    let body = transfer::export_text(
+        &store,
+        transfer::ExportOptions {
+            format,
+            app: query.app.as_deref(),
+            shell_prefix: false,
+        },
+    )
+    .map_err(transfer_error_response)?;
+    let content_type = match format {
+        transfer::TransferFormat::Env => "text/plain; charset=utf-8",
+        transfer::TransferFormat::Json | transfer::TransferFormat::EnvaJson => {
+            "application/json; charset=utf-8"
+        }
+        transfer::TransferFormat::Yaml => "application/yaml; charset=utf-8",
+    };
+    Ok(([(header::CONTENT_TYPE, content_type)], body))
+}
+
+async fn import_secrets(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let _guard = state.vault_write_lock.lock().await;
+    let mut store = get_store(&state)?;
+    let mut file_name = None;
+    let mut file_bytes = None;
+    let mut format = None;
+    let mut target_app = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        bad_request(format!("failed to read multipart payload: {error}"))
+    })? {
+        let name = field.name().unwrap_or_default().to_string();
+        match name.as_str() {
+            "file" => {
+                file_name = field.file_name().map(ToOwned::to_owned);
+                file_bytes = Some(field.bytes().await.map_err(|error| {
+                    bad_request(format!("failed to read upload: {error}"))
+                })?);
+            }
+            "format" => {
+                let value = field.text().await.map_err(|error| {
+                    bad_request(format!("failed to read format field: {error}"))
+                })?;
+                let trimmed = value.trim();
+                if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("auto") {
+                    format = Some(trimmed.to_string());
+                }
+            }
+            "app" => {
+                let value = field.text().await.map_err(|error| {
+                    bad_request(format!("failed to read app field: {error}"))
+                })?;
+                let trimmed = value.trim();
+                if !trimmed.is_empty() {
+                    target_app = Some(trimmed.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let file_bytes = file_bytes.ok_or_else(|| bad_request("missing file upload"))?;
+    let text = std::str::from_utf8(&file_bytes).map_err(|error| {
+        bad_request(format!("uploaded file must be valid UTF-8 text: {error}"))
+    })?;
+    let explicit_format = format
+        .as_deref()
+        .map(transfer::TransferFormat::parse)
+        .transpose()
+        .map_err(transfer_error_response)?;
+    let summary = transfer::import_text(
+        &mut store,
+        text,
+        transfer::ImportOptions {
+            format: explicit_format,
+            source_name: file_name.as_deref(),
+            target_app: target_app.as_deref(),
+        },
+    )
+    .map_err(transfer_error_response)?;
+    store.save().map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: error.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "status": "imported",
+        "summary": summary,
+    })))
+}
+
 async fn get_secret(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -2451,6 +2589,43 @@ mod tests {
             Some(b) => builder.body(Body::from(b.to_string())).unwrap(),
             None => builder.body(Body::empty()).unwrap(),
         }
+    }
+
+    fn authed_import_request(
+        uri: &str,
+        token: &str,
+        file_name: &str,
+        file_contents: &str,
+        format: Option<&str>,
+        app: Option<&str>,
+    ) -> Request<Body> {
+        let boundary = "enva-boundary";
+        let mut body = String::new();
+        body.push_str(&format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: text/plain\r\n\r\n{file_contents}\r\n"
+        ));
+        if let Some(format) = format {
+            body.push_str(&format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"format\"\r\n\r\n{format}\r\n"
+            ));
+        }
+        if let Some(app) = app {
+            body.push_str(&format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"app\"\r\n\r\n{app}\r\n"
+            ));
+        }
+        body.push_str(&format!("--{boundary}--\r\n"));
+
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("authorization", format!("Bearer {token}"))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .unwrap()
     }
 
     #[test]
@@ -3080,6 +3255,85 @@ mod tests {
         let req = authed_request("GET", "/api/apps/nonexistent/secrets", &token, None);
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn export_secrets_supports_enva_json_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("export-bundle.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store
+            .set("db-url", "DATABASE_URL", "postgres://x", "", &[])
+            .unwrap();
+        store
+            .set("api-key", "API_KEY", "secret-token", "", &[])
+            .unwrap();
+        store.create_app("backend", "Backend", "/srv/backend").unwrap();
+        store.assign("backend", "db-url", Some("BACKEND_DB")).unwrap();
+        store.assign("backend", "api-key", None).unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request(
+            "GET",
+            "/api/secrets/export?app=backend&format=enva-json",
+            &token,
+            None,
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/json; charset=utf-8"
+        );
+
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["schema"], "enva-bundle");
+        assert_eq!(json["apps"][0]["name"], "backend");
+        let bindings = json["apps"][0]["bindings"].as_array().unwrap();
+        assert!(bindings.iter().any(|binding| {
+            binding["alias"] == "db-url" && binding["injected_as"] == "BACKEND_DB"
+        }));
+    }
+
+    #[tokio::test]
+    async fn import_secrets_accepts_yaml_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("import-bundle.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+        let (router, state) = build_app(&vps);
+        let token = login_and_get_token(&router, &state, "testpass1234").await;
+
+        let yaml = concat!(
+            "schema: \"enva-bundle\"\n",
+            "version: 1\n",
+            "secrets: [{\"alias\":\"db-url\",\"key\":\"DATABASE_URL\",\"value\":\"postgres://bundle\",\"description\":\"\",\"tags\":[]}]\n",
+            "apps: [{\"name\":\"backend\",\"description\":\"Backend\",\"app_path\":\"/srv/backend\",\"bindings\":[{\"alias\":\"db-url\",\"injected_as\":\"BACKEND_DB\"}]}]\n"
+        );
+        let req = authed_import_request(
+            "/api/secrets/import",
+            &token,
+            "bundle.yaml",
+            yaml,
+            Some("yaml"),
+            None,
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let req = authed_request("GET", "/api/apps/backend/secrets", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let secrets = json["secrets"].as_array().unwrap();
+        assert_eq!(secrets[0]["alias"], "db-url");
+        assert_eq!(secrets[0]["injected_as"], "BACKEND_DB");
     }
 
     #[tokio::test]

@@ -723,12 +723,22 @@ body::after {
     <div class="modal-body">
       <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <p>Drop .env file here or click to browse</p>
-        <div class="hint">Supports standard KEY=VALUE format</div>
+        <p>Drop a secrets file here or click to browse</p>
+        <div class="hint">Supports .env, flat JSON, Enva JSON bundles, and YAML bundles</div>
       </div>
-      <input type="file" id="fileInput" accept=".env,.txt" style="display:none" onchange="handleFileSelect(event)">
+      <input type="file" id="fileInput" accept=".env,.txt,.json,.yaml,.yml" style="display:none" onchange="handleFileSelect(event)">
       <div class="field-group" style="margin-top:16px">
-        <label>Assign imported secrets to app (optional)</label>
+        <label>Import format</label>
+        <select id="importFormat">
+          <option value="auto">Auto-detect</option>
+          <option value="env">.env</option>
+          <option value="json">Flat JSON</option>
+          <option value="enva-json">Enva JSON Bundle</option>
+          <option value="yaml">YAML Bundle</option>
+        </select>
+      </div>
+      <div class="field-group" style="margin-top:16px">
+        <label>Assign flat imports to app (optional)</label>
         <select id="importTargetApp">
           <option value="">— No app (pool only) —</option>
         </select>
@@ -768,6 +778,8 @@ body::after {
         <select id="exportFormat">
           <option value="env">.env (KEY=VALUE)</option>
           <option value="json">JSON</option>
+          <option value="enva-json">Enva JSON Bundle</option>
+          <option value="yaml">YAML Bundle</option>
         </select>
       </div>
       <div class="field-group">
@@ -1097,6 +1109,8 @@ let revealedValues = new Set();
 let editingAlias = null;
 let editingOriginal = null;
 let importData = [];
+let pendingImportFile = null;
+let pendingImportText = '';
 let confirmCallback = null;
 let authToken = null;
 let selectedRemoteHost = null;
@@ -1138,7 +1152,10 @@ function apiBase() {
 }
 
 async function apiFetch(path, opts = {}) {
-  const headers = Object.assign({'Content-Type': 'application/json'}, opts.headers || {});
+  const headers = Object.assign({}, opts.headers || {});
+  if (!(opts.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
@@ -1148,6 +1165,30 @@ async function apiFetch(path, opts = {}) {
     throw new Error(data.error || `HTTP ${res.status}`);
   }
   return data;
+}
+
+async function apiFetchText(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (!(opts.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  const res = await fetch(`${apiBase()}${path}`, Object.assign({}, opts, { headers }));
+  const text = await res.text();
+  if (!res.ok) {
+    try {
+      const data = JSON.parse(text || '{}');
+      throw new Error(data.error || `HTTP ${res.status}`);
+    } catch (err) {
+      if (err instanceof Error && err.message !== `HTTP ${res.status}`) {
+        throw err;
+      }
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+  }
+  return text;
 }
 
 const pathFieldTimers = {};
@@ -2684,7 +2725,10 @@ async function submitBatch() {
     try {
       await apiFetch(`/apps/${encodeURIComponent(targetApp)}/secrets`, {
         method: 'PUT',
-        body: JSON.stringify({ secrets: [...existing, ...addedAliases], overrides: {} })
+        body: JSON.stringify({
+          secrets: [...existing, ...addedAliases],
+          overrides: APPS[targetApp] ? APPS[targetApp].overrides : {}
+        })
       });
     } catch (err) {
       errors.push(`app assign: ${err.message}`);
@@ -2714,10 +2758,13 @@ async function submitBatch() {
 /* ─── Import ──────────────────────────────────────────── */
 function openImportModal() {
   importData = [];
+  pendingImportFile = null;
+  pendingImportText = '';
   document.getElementById('importPreview').classList.remove('show');
   document.getElementById('importPreviewBody').innerHTML = '';
   document.getElementById('importBtn').disabled = true;
   document.getElementById('fileInput').value = '';
+  document.getElementById('importFormat').value = 'auto';
   const sel = document.getElementById('importTargetApp');
   sel.innerHTML = '<option value="">— No app (pool only) —</option>';
   for (const name of Object.keys(APPS)) {
@@ -2729,9 +2776,7 @@ function openImportModal() {
 function handleFileSelect(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => parseEnvContent(ev.target.result);
-  reader.readAsText(file);
+  loadImportFile(file);
 }
 
 const dropzone = document.getElementById('dropzone');
@@ -2742,18 +2787,60 @@ dropzone.addEventListener('drop', e => {
   dropzone.classList.remove('dragover');
   const file = e.dataTransfer.files[0];
   if (file) {
-    const reader = new FileReader();
-    reader.onload = (ev) => parseEnvContent(ev.target.result);
-    reader.readAsText(file);
+    loadImportFile(file);
   }
 });
 
-function parseEnvContent(text) {
-  importData = [];
+document.getElementById('importFormat').addEventListener('change', () => {
+  if (pendingImportFile) {
+    renderImportPreview(pendingImportFile.name, pendingImportText);
+  }
+});
+
+function loadImportFile(file) {
+  pendingImportFile = file;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    pendingImportText = String(ev.target.result || '');
+    renderImportPreview(file.name, pendingImportText);
+  };
+  reader.readAsText(file);
+}
+
+function detectImportFormat(fileName, text) {
+  const selected = document.getElementById('importFormat').value;
+  if (selected && selected !== 'auto') {
+    return selected;
+  }
+  const lower = (fileName || '').toLowerCase();
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) {
+    return 'yaml';
+  }
+  if (lower.endsWith('.json')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && parsed.schema === 'enva-bundle') {
+        return 'enva-json';
+      }
+    } catch (_) {}
+    return 'json';
+  }
+  return 'env';
+}
+
+function normalizeImportAlias(key) {
+  return String(key || '').toLowerCase().replace(/_/g, '-');
+}
+
+function previewEnvEntries(text) {
+  const rows = [];
   const lines = text.split('\n');
   for (const line of lines) {
-    const trimmed = line.trim();
+    let trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith('export ')) {
+      trimmed = trimmed.substring(7).trim();
+    }
     const eqIdx = trimmed.indexOf('=');
     if (eqIdx === -1) continue;
     const key = trimmed.substring(0, eqIdx).trim();
@@ -2762,8 +2849,92 @@ function parseEnvContent(text) {
       const q = val[0];
       val = val.slice(1, -1).replace(q === '"' ? /\\"/g : /\\'/g, q);
     }
-    const alias = key.toLowerCase().replace(/_/g, '-');
-    importData.push({ alias, key, value: val });
+    rows.push({ alias: normalizeImportAlias(key), key, value: val });
+  }
+  return rows;
+}
+
+function previewJsonEntries(text) {
+  const parsed = JSON.parse(text);
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw new Error('Flat JSON imports must be an object of string values.');
+  }
+  return Object.entries(parsed).map(([key, value]) => {
+    if (typeof value !== 'string') {
+      throw new Error('Flat JSON imports only support string values.');
+    }
+    return { alias: normalizeImportAlias(key), key, value };
+  });
+}
+
+function parseBundleJson(text) {
+  const parsed = JSON.parse(text);
+  if (!parsed || parsed.schema !== 'enva-bundle') {
+    throw new Error('Expected an Enva bundle with schema "enva-bundle".');
+  }
+  parsed.secrets = parsed.secrets || [];
+  parsed.apps = parsed.apps || [];
+  return parsed;
+}
+
+function parseBundleYaml(text) {
+  const bundle = {};
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+    const idx = trimmed.indexOf(':');
+    if (idx === -1) {
+      continue;
+    }
+    const key = trimmed.substring(0, idx).trim();
+    const raw = trimmed.substring(idx + 1).trim();
+    if (!raw) {
+      continue;
+    }
+    if (key === 'version') {
+      bundle.version = Number(raw);
+    } else {
+      bundle[key] = JSON.parse(raw);
+    }
+  }
+  if (!bundle.schema || bundle.schema !== 'enva-bundle') {
+    throw new Error('Expected a YAML bundle generated by Enva export.');
+  }
+  bundle.secrets = bundle.secrets || [];
+  bundle.apps = bundle.apps || [];
+  return bundle;
+}
+
+function previewBundleEntries(bundle) {
+  return (bundle.secrets || []).map(secret => ({
+    alias: secret.alias || '',
+    key: secret.key || '',
+    value: secret.value || ''
+  }));
+}
+
+function renderImportPreview(fileName, text) {
+  importData = [];
+  const format = detectImportFormat(fileName, text);
+  try {
+    if (format === 'env') {
+      importData = previewEnvEntries(text);
+    } else if (format === 'json') {
+      importData = previewJsonEntries(text);
+    } else if (format === 'enva-json') {
+      importData = previewBundleEntries(parseBundleJson(text));
+    } else {
+      importData = previewBundleEntries(parseBundleYaml(text));
+    }
+  } catch (err) {
+    document.getElementById('importPreview').classList.remove('show');
+    document.getElementById('importPreviewBody').innerHTML = '';
+    document.getElementById('importBtn').disabled = true;
+    toast(err.message, 'error');
+    return;
   }
 
   const body = document.getElementById('importPreviewBody');
@@ -2783,32 +2954,28 @@ function parseEnvContent(text) {
 }
 
 async function doImport() {
+  if (!pendingImportFile) {
+    toast('Choose an import file first.', 'error');
+    return;
+  }
   const targetApp = document.getElementById('importTargetApp').value;
-  let count = 0;
-  const importedAliases = [];
+  const selectedFormat = document.getElementById('importFormat').value;
   try {
-    for (const item of importData) {
-      let alias = item.alias;
-      let suffix = 1;
-      while (SECRETS[alias]) { alias = item.alias + '-' + suffix; suffix++; }
-      await apiFetch(`/secrets/${encodeURIComponent(alias)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ key: item.key, value: item.value, description: '', tags: [] })
-      });
-      importedAliases.push(alias);
-      count++;
+    const form = new FormData();
+    form.append('file', pendingImportFile, pendingImportFile.name);
+    if (selectedFormat && selectedFormat !== 'auto') {
+      form.append('format', selectedFormat);
     }
-    if (targetApp && importedAliases.length > 0) {
-      const existing = APPS[targetApp] ? APPS[targetApp].secrets : [];
-      await apiFetch(`/apps/${encodeURIComponent(targetApp)}/secrets`, {
-        method: 'PUT',
-        body: JSON.stringify({ secrets: [...existing, ...importedAliases], overrides: {} })
-      });
+    if (targetApp) {
+      form.append('app', targetApp);
     }
+    const result = await apiFetch('/secrets/import', { method: 'POST', body: form });
     closeModal('importModal');
     loadSecretsFromAPI();
     loadAppsFromAPI();
-    toast(`Imported ${count} secret(s).`);
+    const summary = result.summary || {};
+    const appSuffix = summary.imported_apps ? ` and ${summary.imported_apps} app(s)` : '';
+    toast(`Imported ${summary.imported_secrets || 0} secret(s)${appSuffix}.`);
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -2832,31 +2999,13 @@ async function updateExportPreview() {
   const scope = document.getElementById('exportScope').value;
   const format = document.getElementById('exportFormat').value;
   document.getElementById('exportPreview').value = 'Loading...';
-
-  const aliases = scope === 'all'
-    ? Object.keys(SECRETS)
-    : (APPS[scope] ? APPS[scope].secrets.filter(a => SECRETS[a]) : []);
-
   try {
-    const revealed = await Promise.all(
-      aliases.map(alias =>
-        apiFetch(`/secrets/${encodeURIComponent(alias)}?reveal=true`)
-          .then(data => {
-            const app = scope !== 'all' ? APPS[scope] : null;
-            const key = (app && app.overrides[alias]) || data.key;
-            return { alias, key, value: data.value || '' };
-          })
-      )
-    );
-
-    let output;
-    if (format === 'env') {
-      output = revealed.map(e => `${e.key}=${e.value}`).join('\n');
-    } else {
-      const obj = {};
-      for (const e of revealed) { obj[e.key] = e.value; }
-      output = JSON.stringify(obj, null, 2);
+    const params = new URLSearchParams();
+    params.set('format', format);
+    if (scope !== 'all') {
+      params.set('app', scope);
     }
+    const output = await apiFetchText(`/secrets/export?${params.toString()}`);
     document.getElementById('exportPreview').value = output;
   } catch (err) {
     document.getElementById('exportPreview').value = `Error: ${err.message}`;
