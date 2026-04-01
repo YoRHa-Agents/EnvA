@@ -1213,8 +1213,8 @@ fn update_downloads_requested_release_into_override_binary_path() {
     let digest = sha256_hex(downloaded);
     let asset_path = format!("/downloads/{asset_name}");
     let release_body = serde_json::json!({
-        "tag_name": "v0.6.1",
-        "html_url": format!("{}/releases/v0.6.1", server.url()),
+        "tag_name": "v0.6.2",
+        "html_url": format!("{}/releases/v0.6.2", server.url()),
         "assets": [{
             "name": asset_name,
             "browser_download_url": format!("{}{}", server.url(), asset_path),
@@ -1224,7 +1224,7 @@ fn update_downloads_requested_release_into_override_binary_path() {
     });
 
     let _release = server
-        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.6.1")
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.6.2")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(release_body.to_string())
@@ -1237,12 +1237,12 @@ fn update_downloads_requested_release_into_override_binary_path() {
         .create();
 
     enva_cmd()
-        .args(["update", "--version", "v0.6.1"])
+        .args(["update", "--version", "v0.6.2"])
         .env("ENVA_UPDATE_API_BASE", server.url())
         .env("ENVA_UPDATE_BIN_PATH", &binary_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Updated enva to v0.6.1"));
+        .stdout(predicate::str::contains("Updated enva to v0.6.2"));
 
     assert_eq!(fs::read(&binary_path).unwrap(), downloaded);
 }
@@ -1262,8 +1262,8 @@ fn update_reports_already_up_to_date_for_latest_release() {
     let digest = sha256_hex(downloaded);
     let asset_path = format!("/downloads/{asset_name}");
     let release_body = serde_json::json!({
-        "tag_name": "v0.6.0",
-        "html_url": format!("{}/releases/v0.6.0", server.url()),
+        "tag_name": "v0.6.1",
+        "html_url": format!("{}/releases/v0.6.1", server.url()),
         "assets": [{
             "name": asset_name,
             "browser_download_url": format!("{}{}", server.url(), asset_path),
@@ -1285,7 +1285,7 @@ fn update_reports_already_up_to_date_for_latest_release() {
         .env("ENVA_UPDATE_BIN_PATH", &binary_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Already up to date (v0.6.0)"));
+        .stdout(predicate::str::contains("Already up to date (v0.6.1)"));
 
     assert_eq!(fs::read(&binary_path).unwrap(), b"old-binary");
 }
@@ -1320,8 +1320,8 @@ fn update_missing_asset_returns_exit_code_6() {
 
     let mut server = Server::new();
     let release_body = serde_json::json!({
-        "tag_name": "v0.6.0",
-        "html_url": format!("{}/releases/v0.6.0", server.url()),
+        "tag_name": "v0.6.1",
+        "html_url": format!("{}/releases/v0.6.1", server.url()),
         "assets": [{
             "name": "enva-unsupported",
             "browser_download_url": format!("{}/downloads/enva-unsupported", server.url()),
@@ -1331,14 +1331,14 @@ fn update_missing_asset_returns_exit_code_6() {
     });
 
     let _release = server
-        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.6.0")
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.6.1")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(release_body.to_string())
         .create();
 
     enva_cmd()
-        .args(["update", "--version", "v0.6.0"])
+        .args(["update", "--version", "v0.6.1"])
         .env("ENVA_UPDATE_API_BASE", server.url())
         .env("ENVA_UPDATE_BIN_PATH", &binary_path)
         .assert()
