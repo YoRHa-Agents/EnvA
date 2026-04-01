@@ -86,7 +86,7 @@
 
 | 模式 | 行为 | 安全性 |
 |------|------|--------|
-| `exec` | 以子进程方式注入：`enva <app> -- <cmd>`，secrets 仅存在于子进程环境 | 高 — secrets 不驻留父 shell |
+| `exec` | 以子进程方式注入：`enva --cmd "<command>" <app>`，secrets 仅存在于子进程环境 | 高 — secrets 不驻留父 shell |
 | `export` | 以 `eval "$(enva vault export --app <app> --format env)"` 方式注入当前 shell | 中 — 需配合 `history_protection` |
 
 ### 3.5 web — Web 管理界面
@@ -132,7 +132,7 @@
 | `apps.<name>.description` | string | `""` | 应用的人类可读描述，用于 `enva vault list` 输出 | 可选 | `"后端 API 服务"` | L3, L4 |
 | `apps.<name>.secrets` | list\[string\] | `[]` | 此 app 引用的密钥别名列表；每个 alias 指向密钥池中的一个 secret | 可选；字符串列表，每项须为密钥池中已定义的 alias | `["prod-db", "jwt-secret", "shared-sentry"]` | L3, L4 |
 | `apps.<name>.overrides` | map\[string, string\] | `{}` | 注入时覆盖环境变量名的映射：`alias → 自定义 env var name`；未在此 map 中的 alias 使用 secret 自身的 `key` 值注入 | 可选；key 为 alias，value 为合法环境变量名 | `{"prod-db": "DB_URL"}` | L3, L4 |
-| `apps.<name>.app_path` | string | `""` | 执行 `enva <APP>` 且未显式传入 `-- <cmd>` 时使用的本地可执行路径 | 可选；支持 `~`、相对路径和绝对路径。相对路径按启动 `enva` 时的当前工作目录解析；若 vault 中该 app 已存有非空 `app_path`，则 vault 值优先，配置值仅作回退 | `"./bin/backend"` | L3, L4 |
+| `apps.<name>.app_path` | string | `""` | 执行 `enva <APP> [ARGS...]` 时使用的本地可执行路径 | 可选；支持 `~`、相对路径和绝对路径。相对路径按启动 `enva` 时的当前工作目录解析；若 vault 中该 app 已存有非空 `app_path`，则 vault 值优先，配置值仅作回退 | `"./bin/backend"` | L3, L4 |
 | `apps.<name>.override_system` | bool | `false` | 当系统环境中已存在同名变量时，是否用 vault 中的值覆盖 | 可选 | `false` | L3, L4 |
 
 **别名解析注入逻辑**：
@@ -165,7 +165,7 @@ apps:
 
 在此示例中：
 - `backend` 引用 3 个 secrets，其中 `prod-db` 以 `DB_URL` 注入（而非默认的 `DATABASE_URL`）
-- `backend` 也可以通过 `enva backend` 直接启动，此时 `./bin/backend` 按当前工作目录解析
+- `backend` 也可以通过 `enva backend --port 3000` 直接启动，此时 `./bin/backend` 按当前工作目录解析，并转发 `--port 3000`
 - `frontend` 引用 1 个 secret，以 `NEXT_PUBLIC_SENTRY_DSN` 注入（而非默认的 `SENTRY_DSN`）
 - `shared-sentry` 被多个 app 共享引用，无需重复定义
 
@@ -178,7 +178,7 @@ apps:
 环境覆盖文件的字段结构与项目配置（Layer 3）相同，所有字段均可出现。激活方式：
 
 ```bash
-enva backend -- ./start.sh
+enva --env staging backend --port 3000
 ```
 
 环境覆盖文件中的字段 **深度合并** 到项目配置之上。`apps` 下同名 app 的字段逐一覆盖；不同名 app 保留项目配置中的定义。
@@ -363,4 +363,4 @@ for alias in apps[NAME].secrets:
 
 ---
 
-*文档版本: 3.0 | 更新时间: 2026-03-27 | 数据模型: 别名引用 (alias-based) | 配置格式版本: 1*
+*文档版本: 3.0 | 更新时间: 2026-04-01 | 数据模型: 别名引用 (alias-based) | 配置格式版本: 1*

@@ -348,6 +348,32 @@ code, .mono { font-family:var(--font-mono); }
 .import-preview table { width:100%; font-size:12px; border-collapse:collapse; }
 .import-preview th { text-align:left; padding:6px 8px; color:var(--muted); font-family:var(--font-mono); font-size:10px; letter-spacing:2px; border-bottom:1px solid var(--border); }
 .import-preview td { padding:6px 8px; border-bottom:1px solid rgba(58,58,54,0.5); }
+.import-preview input[type="checkbox"] { width:auto; accent-color:var(--gold); cursor:pointer; }
+.import-preview input[type="text"] { width:100%; padding:5px 8px; font-size:11px; background:var(--surface); border:1px solid var(--border); font-family:var(--font-mono); }
+.import-preview tr.import-row-conflict { background:rgba(196,90,90,0.08); }
+.import-preview tr.import-row-ready { background:rgba(196,163,90,0.06); }
+.selection-actions {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  margin:10px 0 8px; flex-wrap:wrap;
+}
+.selection-action-buttons { display:flex; gap:8px; flex-wrap:wrap; }
+.selection-actions button { padding:6px 10px; font-size:11px; min-height:auto; }
+.selection-summary { font-size:11px; color:var(--muted); letter-spacing:1px; }
+.selection-list {
+  max-height:170px; overflow:auto; border:1px solid var(--border); background:var(--bg);
+}
+.selection-row {
+  display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
+  padding:8px 10px; border-bottom:1px solid rgba(58,58,54,0.5);
+}
+.selection-row:last-child { border-bottom:none; }
+.selection-row input[type="checkbox"] { width:auto; accent-color:var(--gold); cursor:pointer; }
+.selection-row .selection-meta { color:var(--muted); font-size:10px; letter-spacing:1px; }
+.conflict-cell { min-width:210px; }
+.conflict-message { font-size:11px; color:var(--muted); }
+.conflict-message.error { color:var(--danger); }
+.replace-toggle { display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:10px; color:var(--muted); letter-spacing:1px; }
+.replace-toggle input[type="checkbox"] { width:auto; accent-color:var(--gold); cursor:pointer; }
 
 /* --- Toast --- */
 .toast-container { position:fixed; top:80px; right:16px; z-index:700; display:flex; flex-direction:column; gap:6px; }
@@ -582,7 +608,14 @@ code, .mono { font-family:var(--font-mono); }
         <select id="importTargetApp"><option value="">— Pool only —</option></select>
       </div>
       <div class="import-preview" id="importPreview">
-        <table><thead><tr><th>Alias</th><th>Key</th><th>Value</th></tr></thead><tbody id="importPreviewBody"></tbody></table>
+        <div class="selection-actions">
+          <div class="selection-action-buttons">
+            <button class="btn" type="button" onclick="setAllImportRows(true)">SELECT ALL</button>
+            <button class="btn" type="button" onclick="setAllImportRows(false)">CLEAR ALL</button>
+          </div>
+          <div class="selection-summary" id="importConflictSummary">Load a file to preview import rows.</div>
+        </div>
+        <table><thead><tr><th>Use</th><th>Alias</th><th>Key</th><th>Value</th><th>Conflict</th></tr></thead><tbody id="importPreviewBody"></tbody></table>
       </div>
     </div>
     <div class="modal-footer">
@@ -608,6 +641,16 @@ code, .mono { font-family:var(--font-mono); }
       <div class="field-group">
         <label>Format</label>
         <select id="exportFormat"><option value="env">.env</option><option value="json">JSON</option><option value="enva-json">Enva JSON Bundle</option><option value="yaml">YAML Bundle</option></select>
+      </div>
+      <div class="field-group">
+        <div class="selection-actions">
+          <div class="selection-action-buttons">
+            <button class="btn" type="button" onclick="setAllExportRows(true)">SELECT ALL</button>
+            <button class="btn" type="button" onclick="setAllExportRows(false)">CLEAR ALL</button>
+          </div>
+          <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
+        </div>
+        <div class="selection-list" id="exportSelectionList"></div>
       </div>
       <div class="field-group">
         <label>Preview</label>
@@ -683,8 +726,10 @@ let currentView = 'all';
 let revealedValues = new Set();
 let editingAlias = null;
 let importData = [];
+let pendingImportBundle = null;
 let pendingImportFile = null;
 let pendingImportText = '';
+let exportSelectionAliases = new Set();
 let confirmCallback = null;
 
 function loadState() {
@@ -1102,18 +1147,25 @@ function doAssign() {
   }
 }
 
+function isBundleFormat(format) {
+  return format === 'enva-json' || format === 'yaml';
+}
+
 function openImportModal() {
   importData = [];
+  pendingImportBundle = null;
   pendingImportFile = null;
   pendingImportText = '';
   document.getElementById('importPreview').classList.remove('show');
   document.getElementById('importPreviewBody').innerHTML = '';
-  document.getElementById('importBtn').disabled = true;
   document.getElementById('fileInput').value = '';
   document.getElementById('importFormat').value = 'auto';
   var sel = document.getElementById('importTargetApp');
   sel.innerHTML = '<option value="">— Pool only —</option>';
   for (var name in APPS) { sel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>'; }
+  document.getElementById('importConflictSummary').textContent = 'Load a file to preview import rows.';
+  renderImportRows();
+  updateImportTargetAppState();
   openModal('importModal');
 }
 
@@ -1134,10 +1186,21 @@ dropzone.addEventListener('drop', function(e) {
 });
 
 document.getElementById('importFormat').addEventListener('change', function() {
+  updateImportTargetAppState();
   if (pendingImportFile) {
     renderImportPreview(pendingImportFile.name, pendingImportText);
   }
 });
+
+function updateImportTargetAppState() {
+  var targetApp = document.getElementById('importTargetApp');
+  var format = pendingImportFile
+    ? detectImportFormat(pendingImportFile.name, pendingImportText)
+    : document.getElementById('importFormat').value;
+  var bundle = isBundleFormat(format);
+  targetApp.disabled = bundle;
+  if (bundle) { targetApp.value = ''; }
+}
 
 function loadImportFile(file) {
   pendingImportFile = file;
@@ -1165,7 +1228,14 @@ function detectImportFormat(fileName, text) {
 }
 
 function normalizeAlias(key) {
-  return String(key || '').toLowerCase().replace(/_/g, '-');
+  var normalized = String(key || '')
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_]+/, '')
+    .slice(0, 63);
+  return normalized.replace(/[-_]+$/, '');
 }
 
 function previewEnvEntries(text) {
@@ -1182,7 +1252,7 @@ function previewEnvEntries(text) {
     if ((val.charAt(0) === '"' && val.charAt(val.length - 1) === '"') || (val.charAt(0) === "'" && val.charAt(val.length - 1) === "'")) {
       val = val.slice(1, -1);
     }
-    rows.push({ alias: normalizeAlias(key), key: key, value: val });
+    rows.push({ alias: normalizeAlias(key), key: key, value: val, description: '', tags: [] });
   }
   return rows;
 }
@@ -1197,9 +1267,19 @@ function previewJsonEntries(text) {
     if (typeof parsed[key] !== 'string') {
       throw new Error('Flat JSON imports only support string values.');
     }
-    rows.push({ alias: normalizeAlias(key), key: key, value: parsed[key] });
+    rows.push({ alias: normalizeAlias(key), key: key, value: parsed[key], description: '', tags: [] });
   }
   return rows;
+}
+
+function parseBundleJson(text) {
+  var bundle = JSON.parse(text);
+  if (!bundle || bundle.schema !== 'enva-bundle') {
+    throw new Error('Expected an Enva bundle with schema "enva-bundle".');
+  }
+  bundle.secrets = bundle.secrets || [];
+  bundle.apps = bundle.apps || [];
+  return bundle;
 }
 
 function parseBundleYaml(text) {
@@ -1230,53 +1310,256 @@ function parseBundleYaml(text) {
 function previewBundleEntries(bundle) {
   var secrets = bundle.secrets || [];
   return secrets.map(function(secret) {
-    return { alias: secret.alias || '', key: secret.key || '', value: secret.value || '' };
+    return {
+      alias: secret.alias || '',
+      key: secret.key || '',
+      value: secret.value || '',
+      description: secret.description || '',
+      tags: Array.isArray(secret.tags) ? secret.tags.slice() : []
+    };
   });
 }
 
 function renderImportPreview(fileName, text) {
   importData = [];
+  pendingImportBundle = null;
   var format = detectImportFormat(fileName, text);
   try {
+    var rows = [];
     if (format === 'env') {
-      importData = previewEnvEntries(text);
+      rows = previewEnvEntries(text);
     } else if (format === 'json') {
-      importData = previewJsonEntries(text);
+      rows = previewJsonEntries(text);
     } else if (format === 'enva-json') {
-      importData = previewBundleEntries(JSON.parse(text));
+      pendingImportBundle = parseBundleJson(text);
+      rows = previewBundleEntries(pendingImportBundle);
     } else {
-      importData = previewBundleEntries(parseBundleYaml(text));
+      pendingImportBundle = parseBundleYaml(text);
+      rows = previewBundleEntries(pendingImportBundle);
     }
+    importData = rows.map(function(row, index) {
+      return {
+        id: (row.alias || 'row') + '-' + index,
+        sourceAlias: row.alias,
+        alias: normalizeAlias(row.alias),
+        key: row.key || '',
+        value: row.value || '',
+        description: row.description || '',
+        tags: Array.isArray(row.tags) ? row.tags.slice() : [],
+        selected: true,
+        replaceExisting: false
+      };
+    });
   } catch (err) {
     document.getElementById('importPreview').classList.remove('show');
     document.getElementById('importPreviewBody').innerHTML = '';
     document.getElementById('importBtn').disabled = true;
+    document.getElementById('importConflictSummary').textContent = 'Fix the file format and try again.';
     toast(err.message, 'error');
     return;
   }
-  var body = document.getElementById('importPreviewBody');
-  body.innerHTML = '';
-  for (var j = 0; j < importData.length; j++) {
-    var item = importData[j];
-    var preview = item.value.length > 30 ? item.value.substring(0, 30) + '...' : item.value;
-    var tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="mono">' + esc(item.alias) + '</span></td><td><span class="mono">' + esc(item.key) + '</span></td><td><span class="mono" style="color:var(--muted)">' + esc(preview) + '</span></td>';
-    body.appendChild(tr);
-  }
-  document.getElementById('importPreview').classList.toggle('show', importData.length > 0);
-  document.getElementById('importBtn').disabled = importData.length === 0;
+  updateImportTargetAppState();
+  renderImportRows();
 }
 
-function buildBundle(scope) {
-  var bundle = { schema: 'enva-bundle', version: 1, secrets: [], apps: [] };
-  var aliases = [];
-  if (scope === 'all') {
-    for (var alias in SECRETS) { aliases.push(alias); }
-  } else {
-    var app = APPS[scope];
-    if (app) { aliases = app.secrets.slice(); }
+function renderImportRows() {
+  var body = document.getElementById('importPreviewBody');
+  body.innerHTML = '';
+  var aliasCounts = {};
+  for (var i = 0; i < importData.length; i++) {
+    importData[i].alias = normalizeAlias(importData[i].alias);
+    if (importData[i].selected && importData[i].alias) {
+      aliasCounts[importData[i].alias] = (aliasCounts[importData[i].alias] || 0) + 1;
+    }
   }
-  aliases.sort();
+
+  var selectedCount = 0;
+  var unresolvedCount = 0;
+  for (var j = 0; j < importData.length; j++) {
+    var item = importData[j];
+    var hasExistingConflict = item.selected && !!item.alias && Object.prototype.hasOwnProperty.call(SECRETS, item.alias);
+    var hasDuplicateConflict = item.selected && !!item.alias && aliasCounts[item.alias] > 1;
+    var messages = [];
+    if (item.selected) {
+      selectedCount++;
+      if (!item.alias) { messages.push('Alias is required.'); }
+      if (!item.key) { messages.push('Key is required.'); }
+      if (hasDuplicateConflict) { messages.push('Duplicate alias in selected rows. Rename or deselect one row.'); }
+      if (hasExistingConflict && !item.replaceExisting) { messages.push('Alias already exists. Choose Replace existing or rename.'); }
+      if (messages.length > 0) { unresolvedCount++; }
+    }
+
+    var preview = item.value.length > 30 ? item.value.substring(0, 30) + '...' : item.value;
+    var tr = document.createElement('tr');
+    tr.className = !item.selected ? '' : (messages.length > 0 ? 'import-row-conflict' : 'import-row-ready');
+    tr.innerHTML =
+      '<td><input type="checkbox" ' + (item.selected ? 'checked' : '') + ' onchange="setImportRowSelected(' + j + ', this.checked)"></td>' +
+      '<td><input type="text" class="mono" value="' + esc(item.alias) + '" onchange="setImportRowAlias(' + j + ', this.value)"></td>' +
+      '<td><span class="mono">' + esc(item.key) + '</span></td>' +
+      '<td><span class="mono" style="color:var(--muted)">' + esc(preview) + '</span></td>' +
+      '<td class="conflict-cell">' +
+        (hasExistingConflict ? (
+          '<label class="replace-toggle">' +
+            '<input type="checkbox" ' + (item.replaceExisting ? 'checked' : '') + ' onchange="setImportRowReplace(' + j + ', this.checked)">' +
+            '<span>Replace existing</span>' +
+          '</label>'
+        ) : '') +
+        '<div class="conflict-message ' + (messages.length > 0 ? 'error' : '') + '">' + esc(item.selected ? (messages.join(' ') || 'Ready to import.') : 'Skipped.') + '</div>' +
+      '</td>';
+    body.appendChild(tr);
+  }
+
+  document.getElementById('importPreview').classList.toggle('show', importData.length > 0);
+  document.getElementById('importConflictSummary').textContent = importData.length === 0
+    ? 'Load a file to preview import rows.'
+    : (selectedCount + ' selected' + (unresolvedCount > 0 ? ' • ' + unresolvedCount + ' need attention' : ' • ready to import'));
+  document.getElementById('importBtn').disabled = selectedCount === 0 || unresolvedCount > 0;
+}
+
+function setAllImportRows(selected) {
+  for (var i = 0; i < importData.length; i++) {
+    importData[i].selected = selected;
+    if (!selected) { importData[i].replaceExisting = false; }
+  }
+  renderImportRows();
+}
+
+function setImportRowSelected(index, selected) {
+  if (!importData[index]) { return; }
+  importData[index].selected = selected;
+  if (!selected) { importData[index].replaceExisting = false; }
+  renderImportRows();
+}
+
+function setImportRowAlias(index, alias) {
+  if (!importData[index]) { return; }
+  importData[index].alias = normalizeAlias(alias);
+  renderImportRows();
+}
+
+function setImportRowReplace(index, replaceExisting) {
+  if (!importData[index]) { return; }
+  importData[index].replaceExisting = replaceExisting;
+  renderImportRows();
+}
+
+function buildSelectedImportBundle(targetApp) {
+  var selectedRows = importData.filter(function(row) { return row.selected; });
+  var selectedBySourceAlias = {};
+  var secrets = selectedRows.map(function(row) {
+    selectedBySourceAlias[row.sourceAlias] = row;
+    return {
+      alias: row.alias,
+      key: row.key,
+      value: row.value,
+      description: row.description || '',
+      tags: Array.isArray(row.tags) ? row.tags.slice() : []
+    };
+  });
+
+  if (!isBundleFormat(detectImportFormat(pendingImportFile ? pendingImportFile.name : '', pendingImportText))) {
+    var apps = [];
+    if (targetApp) {
+      var appData = APPS[targetApp] || { description: '', app_path: '' };
+      apps.push({
+        name: targetApp,
+        description: appData.description || '',
+        app_path: appData.app_path || '',
+        bindings: selectedRows.map(function(row) {
+          return { alias: row.alias, injected_as: row.key };
+        })
+      });
+    }
+    return { schema: 'enva-bundle', version: 1, secrets: secrets, apps: apps };
+  }
+
+  var bundle = pendingImportBundle || { schema: 'enva-bundle', version: 1, secrets: [], apps: [] };
+  var apps = (bundle.apps || []).map(function(app) {
+    return {
+      name: app.name,
+      description: app.description || '',
+      app_path: app.app_path || '',
+      bindings: (app.bindings || [])
+        .filter(function(binding) { return !!selectedBySourceAlias[binding.alias]; })
+        .map(function(binding) {
+          var row = selectedBySourceAlias[binding.alias];
+          return { alias: row.alias, injected_as: binding.injected_as || row.key };
+        })
+    };
+  }).filter(function(app) { return app.bindings.length > 0; });
+
+  return {
+    schema: bundle.schema || 'enva-bundle',
+    version: bundle.version || 1,
+    secrets: secrets,
+    apps: apps
+  };
+}
+
+function aliasesForExportScope(scope) {
+  if (scope === 'all') {
+    return Object.keys(SECRETS).sort();
+  }
+  return APPS[scope] ? APPS[scope].secrets.filter(function(alias) { return !!SECRETS[alias]; }).slice() : [];
+}
+
+function syncExportSelections(reset) {
+  var aliases = aliasesForExportScope(document.getElementById('exportScope').value);
+  if (reset) {
+    exportSelectionAliases = new Set(aliases);
+    return aliases;
+  }
+  exportSelectionAliases = new Set(aliases.filter(function(alias) { return exportSelectionAliases.has(alias); }));
+  return aliases;
+}
+
+function renderExportSelectionList() {
+  var scope = document.getElementById('exportScope').value;
+  var aliases = syncExportSelections(false);
+  var list = document.getElementById('exportSelectionList');
+  var summary = document.getElementById('exportSelectionSummary');
+  list.innerHTML = '';
+
+  if (aliases.length === 0) {
+    list.innerHTML = '<div class="selection-row"><span class="selection-meta">No secrets available in this scope.</span></div>';
+    summary.textContent = 'No secrets available.';
+    return;
+  }
+
+  var app = scope !== 'all' ? APPS[scope] : null;
+  for (var i = 0; i < aliases.length; i++) {
+    var alias = aliases[i];
+    var secret = SECRETS[alias];
+    var exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    var row = document.createElement('div');
+    row.className = 'selection-row';
+    row.innerHTML =
+      '<input type="checkbox" ' + (exportSelectionAliases.has(alias) ? 'checked' : '') + ' onchange="setExportRowSelected(\'' + esc(alias) + '\', this.checked)">' +
+      '<div><div class="mono">' + esc(alias) + '</div><div class="selection-meta">' + esc(exportedKey) + '</div></div>' +
+      '<div class="selection-meta">' + esc(secret.updated || '') + '</div>';
+    list.appendChild(row);
+  }
+
+  summary.textContent = exportSelectionAliases.size + ' selected of ' + aliases.length;
+}
+
+function setAllExportRows(selected) {
+  var aliases = aliasesForExportScope(document.getElementById('exportScope').value);
+  exportSelectionAliases = selected ? new Set(aliases) : new Set();
+  renderExportSelectionList();
+  updateExportPreview();
+}
+
+function setExportRowSelected(alias, selected) {
+  if (selected) { exportSelectionAliases.add(alias); } else { exportSelectionAliases.delete(alias); }
+  renderExportSelectionList();
+  updateExportPreview();
+}
+
+function buildBundle(scope, selectedAliases) {
+  var aliases = (selectedAliases || aliasesForExportScope(scope)).slice().sort();
+  var selectedSet = new Set(aliases);
+  var bundle = { schema: 'enva-bundle', version: 1, secrets: [], apps: [] };
   for (var i = 0; i < aliases.length; i++) {
     var alias = aliases[i];
     var secret = SECRETS[alias];
@@ -1298,12 +1581,13 @@ function buildBundle(scope) {
     for (var k = 0; k < appData.secrets.length; k++) {
       var boundAlias = appData.secrets[k];
       var boundSecret = SECRETS[boundAlias];
-      if (!boundSecret) { continue; }
+      if (!boundSecret || !selectedSet.has(boundAlias)) { continue; }
       bindings.push({
         alias: boundAlias,
         injected_as: (appData.overrides && appData.overrides[boundAlias]) || boundSecret.key
       });
     }
+    if (bindings.length === 0) { continue; }
     bundle.apps.push({
       name: name,
       description: appData.description || '',
@@ -1351,11 +1635,11 @@ function applyBundle(bundle) {
     if (!APPS[app.name].overrides) { APPS[app.name].overrides = {}; }
     for (var k = 0; k < (app.bindings || []).length; k++) {
       var binding = app.bindings[k];
-      if (APPS[app.name].secrets.indexOf(binding.alias) === -1) {
-        APPS[app.name].secrets.push(binding.alias);
-      }
       if (!SECRETS[binding.alias]) {
         throw new Error('Bundle binding references missing secret "' + binding.alias + '".');
+      }
+      if (APPS[app.name].secrets.indexOf(binding.alias) === -1) {
+        APPS[app.name].secrets.push(binding.alias);
       }
       if (binding.injected_as && binding.injected_as !== SECRETS[binding.alias].key) {
         APPS[app.name].overrides[binding.alias] = binding.injected_as;
@@ -1373,29 +1657,13 @@ function doImport() {
     toast('Choose an import file first.');
     return;
   }
-  var targetApp = document.getElementById('importTargetApp').value;
-  var format = detectImportFormat(pendingImportFile ? pendingImportFile.name : '', pendingImportText);
-  var summary;
-  if (format === 'env' || format === 'json') {
-    var count = 0;
-    for (var i = 0; i < importData.length; i++) {
-      var item = importData[i];
-      var alias = item.alias;
-      var suffix = 1;
-      while (SECRETS[alias]) { alias = item.alias + '-' + suffix; suffix++; }
-      SECRETS[alias] = { key:item.key, value:item.value, description:'', tags:[], updated:new Date().toISOString() };
-      if (targetApp) {
-        if (!APPS[targetApp]) { APPS[targetApp] = { description:'', app_path:'', secrets:[], overrides:{} }; }
-        if (APPS[targetApp].secrets.indexOf(alias) === -1) { APPS[targetApp].secrets.push(alias); }
-      }
-      count++;
-    }
-    summary = { imported_secrets: count, imported_apps: 0 };
-  } else if (format === 'enva-json') {
-    summary = applyBundle(JSON.parse(pendingImportText));
-  } else {
-    summary = applyBundle(parseBundleYaml(pendingImportText));
+  var selectedRows = importData.filter(function(row) { return row.selected; });
+  if (selectedRows.length === 0) {
+    toast('Select at least one secret to import.');
+    return;
   }
+  var targetApp = document.getElementById('importTargetApp').value;
+  var summary = applyBundle(buildSelectedImportBundle(targetApp));
   saveState();
   closeModal('importModal');
   renderSidebar();
@@ -1409,8 +1677,14 @@ function doExport() {
   scopeSel.innerHTML = '<option value="all">All Secrets</option>';
   for (var name in APPS) { scopeSel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>'; }
   if (currentView !== 'all') { scopeSel.value = currentView; }
+  syncExportSelections(true);
+  renderExportSelectionList();
   updateExportPreview();
-  scopeSel.onchange = updateExportPreview;
+  scopeSel.onchange = function() {
+    syncExportSelections(true);
+    renderExportSelectionList();
+    updateExportPreview();
+  };
   document.getElementById('exportFormat').onchange = updateExportPreview;
   openModal('exportModal');
 }
@@ -1418,19 +1692,25 @@ function doExport() {
 function updateExportPreview() {
   var scope = document.getElementById('exportScope').value;
   var format = document.getElementById('exportFormat').value;
-  var entries = [];
-  if (scope === 'all') {
-    for (var alias in SECRETS) { var s = SECRETS[alias]; entries.push({ alias:alias, key:s.key, value:s.value }); }
-  } else {
-    var app = APPS[scope];
-    if (app) {
-      for (var i = 0; i < app.secrets.length; i++) {
-        var a = app.secrets[i]; var sec = SECRETS[a];
-        if (!sec) { continue; }
-        entries.push({ alias:a, key:app.overrides[a] || sec.key, value:sec.value });
-      }
-    }
+  var aliases = aliasesForExportScope(scope).filter(function(alias) { return exportSelectionAliases.has(alias); });
+  if (aliases.length === 0) {
+    document.getElementById('exportPreview').value = '';
+    return;
   }
+
+  var entries = aliases.map(function(alias) {
+    var app = scope !== 'all' ? APPS[scope] : null;
+    var secret = SECRETS[alias];
+    return {
+      alias: alias,
+      key: app && app.overrides[alias] ? app.overrides[alias] : secret.key,
+      originalKey: secret.key,
+      value: secret.value,
+      description: secret.description || '',
+      tags: (secret.tags || []).slice()
+    };
+  });
+
   var output;
   if (format === 'env') {
     output = entries.map(function(e) { return e.key + '=' + e.value; }).join('\n');
@@ -1439,9 +1719,9 @@ function updateExportPreview() {
     for (var j = 0; j < entries.length; j++) { obj[entries[j].key] = entries[j].value; }
     output = JSON.stringify(obj, null, 2);
   } else if (format === 'enva-json') {
-    output = JSON.stringify(buildBundle(scope), null, 2);
+    output = JSON.stringify(buildBundle(scope, aliases), null, 2);
   } else {
-    output = bundleToYaml(buildBundle(scope));
+    output = bundleToYaml(buildBundle(scope, aliases));
   }
   document.getElementById('exportPreview').value = output;
 }

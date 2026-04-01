@@ -188,7 +188,7 @@ Vault 文件为单个 UTF-8 编码的 JSON 文件，顶层包含三个字段：`
 
 #### 注入解析算法
 
-当运行 `enva <app_name> -- <command>` 时，按以下算法解析并注入环境变量：
+当运行 `enva <app_name> [args...]` 或 `enva --cmd "<command>" <app_name>` 时，按以下算法解析并注入环境变量：
 
 ```python
 for alias in apps[app_name]["secrets"]:
@@ -1139,5 +1139,5 @@ Tags:    production, database
 
 ---
 
-*文档版本: 3.0 | 格式版本: v2.0 | 更新时间: 2026-03-27*
+*文档版本: 3.0 | 格式版本: v2.0 | 更新时间: 2026-04-01*
 *关联文档: [技术选型](./secrets_manager_tech_decision.md) · [调研报告](./secrets_manager_research.md) · [现状分析](./secrets_manager_codebase_analysis.md)*

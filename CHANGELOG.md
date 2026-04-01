@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-01
+
+### Added
+
+- **Dedicated command mode**: Added `enva --cmd "<command>" <app>` so arbitrary command injection stays available while direct app launches use a clearer argv-forwarding path.
+- **Static page coverage**: Added `static_pages.rs` smoke tests to keep the embedded web UI and browser demo import/export selection controls in sync.
+- **Release branding exports**: Added PNG project icon, social preview, and YoRHa avatar assets for GitHub/social release surfaces.
+
+### Changed
+
+- **App launch argv**: `enva <APP> [ARGS...]` now forwards trailing arguments directly to the configured `app_path`, including flag-like args and a literal `--`.
+- **Bundle import merge behavior**: Portable bundle imports now preserve existing app bindings instead of clearing them before applying imported bindings.
+- **Import/export UX**: Expanded the embedded web UI and demo with row selection, conflict summaries, and replace-existing controls before import/export actions.
+- **Documentation**: Updated the README, agent index, and EN/ZH design docs to reflect the new launch contract and release-facing workflows.
+
+### Fixed
+
+- **Launch mode argument passing**: Direct application launches no longer misinterpret trailing arguments as a replacement command.
+
 ## [0.5.0] - 2026-04-01
 
 ### Added
@@ -121,7 +140,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.0
 [0.5.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.5.0
 [0.4.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.4.0
 [0.3.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.3.0

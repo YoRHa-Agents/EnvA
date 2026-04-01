@@ -99,10 +99,16 @@ enva assign shared-sentry --app backend --vault ~/.enva/vault.json
 ### 第四步：注入运行
 
 ```bash
-enva run --app backend --vault ~/.enva/vault.json -- ./my-app
+enva --vault ~/.enva/vault.json --cmd "./my-app" backend
 ```
 
 子进程会收到三个环境变量：`DATABASE_URL`、`JWT_SECRET` 和 `SENTRY_DSN`。密钥不会出现在 shell 历史记录中。
+
+如果 `backend` 已配置 `app_path`，也可以直接启动它并转发参数：
+
+```bash
+enva --vault ~/.enva/vault.json backend --port 3000
+```
 
 ### 第五步：检查确认
 
@@ -165,12 +171,38 @@ enva edit <ALIAS> [--key <NEW_KEY>] [--value <NEW_VALUE>] [--description <DESC>]
 
 应用密钥分配命令。
 
-### `enva run`
+### `enva <APP> [ARGS...]`
 
-以注入密钥的方式运行子进程。
+启动应用已配置的 `app_path`，并把后续参数原样转发给子进程。
 
 ```bash
-enva run --app backend --vault vault.json -- ./my-server
+enva <APP_NAME> [ARGS...]
+```
+
+示例：
+
+```bash
+enva --vault vault.json backend
+enva --vault vault.json backend --host 0.0.0.0 --port 8081
+echo "$VAULT_PASSWORD" | enva --password-stdin --vault vault.json backend --config config.yaml
+```
+
+如果未配置 `app_path` 且未传入参数，Enva 会打印将要注入的环境变量，而不是启动子进程。
+
+### `enva --cmd "<command>" <APP>`
+
+使用目标应用的 secrets 作为环境变量，执行任意 shell 命令。
+
+```bash
+enva --cmd "<COMMAND>" <APP_NAME>
+```
+
+示例：
+
+```bash
+enva --vault vault.json --cmd "./my-server" backend
+enva --vault vault.json --cmd "docker compose up" backend
+echo "$VAULT_PASSWORD" | enva --password-stdin --vault vault.json --cmd "./start.sh" backend
 ```
 
 ### `enva vault export` / `enva vault import`
@@ -285,5 +317,5 @@ enva self-test
 
 ---
 
-*文档版本: 2.0 | 更新日期: 2026-03-28*
+*文档版本: 2.0 | 更新日期: 2026-04-01*
 *参阅: [架构设计](architecture.md) · [Vault 格式规范](vault_spec.md) · [配置参考](config_reference.md)*

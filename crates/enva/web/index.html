@@ -408,6 +408,42 @@ code, .mono { font-family:'Share Tech Mono',monospace; }
 .import-preview th { text-align:left; padding:8px 10px; color:var(--text-muted); font-size:11px; text-transform:uppercase; border-bottom:1px solid var(--border); }
 .import-preview td { padding:8px 10px; border-bottom:1px solid var(--border); }
 .import-preview .mono { font-size:12px; }
+.import-preview input[type="checkbox"] { width:auto; accent-color:var(--accent); cursor:pointer; }
+.import-preview input[type="text"] {
+  width:100%; padding:6px 10px; font-size:12px; background:var(--bg-primary);
+  border:1px solid var(--border); border-radius:var(--radius); font-family:'JetBrains Mono',monospace;
+}
+.import-preview tr.import-row-conflict { background:rgba(239,68,68,0.04); }
+.import-preview tr.import-row-ready { background:rgba(34,197,94,0.03); }
+.selection-actions {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  margin:12px 0 8px; flex-wrap:wrap;
+}
+.selection-action-buttons { display:flex; gap:8px; flex-wrap:wrap; }
+.selection-actions button {
+  padding:6px 10px; font-size:11px; min-height:auto;
+}
+.selection-summary { font-size:11px; color:var(--text-muted); }
+.selection-list {
+  max-height:180px; overflow:auto; border:1px solid var(--border);
+  border-radius:var(--radius); background:var(--bg-input);
+}
+.selection-row {
+  display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
+  padding:8px 10px; border-bottom:1px solid var(--border);
+}
+.selection-row:last-child { border-bottom:none; }
+.selection-row input[type="checkbox"] { width:auto; accent-color:var(--accent); cursor:pointer; }
+.selection-row .mono { font-size:12px; }
+.selection-row .selection-meta { color:var(--text-muted); font-size:11px; }
+.conflict-cell { min-width:220px; }
+.conflict-message { font-size:11px; color:var(--text-secondary); }
+.conflict-message.error { color:var(--danger); }
+.replace-toggle {
+  display:flex; align-items:center; gap:6px; margin-bottom:4px;
+  font-size:11px; color:var(--text-secondary);
+}
+.replace-toggle input[type="checkbox"] { width:auto; accent-color:var(--accent); cursor:pointer; }
 
 /* ─── Toast ───────────────────────────────────────────── */
 .toast-container { position:fixed; top:20px; right:20px; z-index:300; display:flex; flex-direction:column; gap:8px; }
@@ -715,7 +751,7 @@ body::after {
 <div class="modal-overlay" id="importModal">
   <div class="modal modal-wide">
     <div class="modal-header">
-      <h3>Import from .env</h3>
+      <h3>Import Secrets</h3>
       <button class="modal-close" onclick="closeModal('importModal')">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -744,8 +780,15 @@ body::after {
         </select>
       </div>
       <div class="import-preview" id="importPreview">
+        <div class="selection-actions">
+          <div class="selection-action-buttons">
+            <button class="btn btn-outline" type="button" onclick="setAllImportRows(true)">Select All</button>
+            <button class="btn btn-outline" type="button" onclick="setAllImportRows(false)">Clear All</button>
+          </div>
+          <div class="selection-summary" id="importConflictSummary">Load a file to preview import rows.</div>
+        </div>
         <table>
-          <thead><tr><th>Alias (generated)</th><th>Key</th><th>Value (preview)</th></tr></thead>
+          <thead><tr><th>Use</th><th>Alias</th><th>Key</th><th>Value (preview)</th><th>Conflict</th></tr></thead>
           <tbody id="importPreviewBody"></tbody>
         </table>
       </div>
@@ -781,6 +824,16 @@ body::after {
           <option value="enva-json">Enva JSON Bundle</option>
           <option value="yaml">YAML Bundle</option>
         </select>
+      </div>
+      <div class="field-group">
+        <div class="selection-actions">
+          <div class="selection-action-buttons">
+            <button class="btn btn-outline" type="button" onclick="setAllExportRows(true)">Select All</button>
+            <button class="btn btn-outline" type="button" onclick="setAllExportRows(false)">Clear All</button>
+          </div>
+          <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
+        </div>
+        <div class="selection-list" id="exportSelectionList"></div>
       </div>
       <div class="field-group">
         <label>Preview</label>
@@ -1109,8 +1162,10 @@ let revealedValues = new Set();
 let editingAlias = null;
 let editingOriginal = null;
 let importData = [];
+let pendingImportBundle = null;
 let pendingImportFile = null;
 let pendingImportText = '';
+let exportSelectionAliases = new Set();
 let confirmCallback = null;
 let authToken = null;
 let selectedRemoteHost = null;
@@ -2756,13 +2811,17 @@ async function submitBatch() {
 }
 
 /* ─── Import ──────────────────────────────────────────── */
+function isBundleFormat(format) {
+  return format === 'enva-json' || format === 'yaml';
+}
+
 function openImportModal() {
   importData = [];
+  pendingImportBundle = null;
   pendingImportFile = null;
   pendingImportText = '';
   document.getElementById('importPreview').classList.remove('show');
   document.getElementById('importPreviewBody').innerHTML = '';
-  document.getElementById('importBtn').disabled = true;
   document.getElementById('fileInput').value = '';
   document.getElementById('importFormat').value = 'auto';
   const sel = document.getElementById('importTargetApp');
@@ -2770,6 +2829,9 @@ function openImportModal() {
   for (const name of Object.keys(APPS)) {
     sel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
   }
+  document.getElementById('importConflictSummary').textContent = 'Load a file to preview import rows.';
+  renderImportRows();
+  updateImportTargetAppState();
   openModal('importModal');
 }
 
@@ -2792,10 +2854,23 @@ dropzone.addEventListener('drop', e => {
 });
 
 document.getElementById('importFormat').addEventListener('change', () => {
+  updateImportTargetAppState();
   if (pendingImportFile) {
     renderImportPreview(pendingImportFile.name, pendingImportText);
   }
 });
+
+function updateImportTargetAppState() {
+  const targetApp = document.getElementById('importTargetApp');
+  const format = pendingImportFile
+    ? detectImportFormat(pendingImportFile.name, pendingImportText)
+    : document.getElementById('importFormat').value;
+  const bundle = isBundleFormat(format);
+  targetApp.disabled = bundle;
+  if (bundle) {
+    targetApp.value = '';
+  }
+}
 
 function loadImportFile(file) {
   pendingImportFile = file;
@@ -2829,7 +2904,14 @@ function detectImportFormat(fileName, text) {
 }
 
 function normalizeImportAlias(key) {
-  return String(key || '').toLowerCase().replace(/_/g, '-');
+  const normalized = String(key || '')
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_]+/, '')
+    .slice(0, 63);
+  return normalized.replace(/[-_]+$/, '');
 }
 
 function previewEnvEntries(text) {
@@ -2849,7 +2931,13 @@ function previewEnvEntries(text) {
       const q = val[0];
       val = val.slice(1, -1).replace(q === '"' ? /\\"/g : /\\'/g, q);
     }
-    rows.push({ alias: normalizeImportAlias(key), key, value: val });
+    rows.push({
+      alias: normalizeImportAlias(key),
+      key,
+      value: val,
+      description: '',
+      tags: []
+    });
   }
   return rows;
 }
@@ -2863,7 +2951,13 @@ function previewJsonEntries(text) {
     if (typeof value !== 'string') {
       throw new Error('Flat JSON imports only support string values.');
     }
-    return { alias: normalizeImportAlias(key), key, value };
+    return {
+      alias: normalizeImportAlias(key),
+      key,
+      value,
+      description: '',
+      tags: []
+    };
   });
 }
 
@@ -2912,45 +3006,212 @@ function previewBundleEntries(bundle) {
   return (bundle.secrets || []).map(secret => ({
     alias: secret.alias || '',
     key: secret.key || '',
-    value: secret.value || ''
+    value: secret.value || '',
+    description: secret.description || '',
+    tags: Array.isArray(secret.tags) ? secret.tags.slice() : []
   }));
 }
 
 function renderImportPreview(fileName, text) {
   importData = [];
+  pendingImportBundle = null;
   const format = detectImportFormat(fileName, text);
   try {
+    let rows = [];
     if (format === 'env') {
-      importData = previewEnvEntries(text);
+      rows = previewEnvEntries(text);
     } else if (format === 'json') {
-      importData = previewJsonEntries(text);
+      rows = previewJsonEntries(text);
     } else if (format === 'enva-json') {
-      importData = previewBundleEntries(parseBundleJson(text));
+      pendingImportBundle = parseBundleJson(text);
+      rows = previewBundleEntries(pendingImportBundle);
     } else {
-      importData = previewBundleEntries(parseBundleYaml(text));
+      pendingImportBundle = parseBundleYaml(text);
+      rows = previewBundleEntries(pendingImportBundle);
     }
+    importData = rows.map((row, index) => ({
+      id: `${row.alias || 'row'}-${index}`,
+      sourceAlias: row.alias,
+      alias: normalizeImportAlias(row.alias),
+      key: row.key || '',
+      value: row.value || '',
+      description: row.description || '',
+      tags: Array.isArray(row.tags) ? row.tags.slice() : [],
+      selected: true,
+      replaceExisting: false
+    }));
   } catch (err) {
     document.getElementById('importPreview').classList.remove('show');
     document.getElementById('importPreviewBody').innerHTML = '';
+    document.getElementById('importConflictSummary').textContent = 'Fix the file format and try again.';
     document.getElementById('importBtn').disabled = true;
     toast(err.message, 'error');
     return;
   }
+  updateImportTargetAppState();
+  renderImportRows();
+}
 
+function renderImportRows() {
   const body = document.getElementById('importPreviewBody');
   body.innerHTML = '';
-  for (const item of importData) {
+  const aliasCounts = new Map();
+  for (const row of importData) {
+    row.alias = normalizeImportAlias(row.alias);
+    if (row.selected && row.alias) {
+      aliasCounts.set(row.alias, (aliasCounts.get(row.alias) || 0) + 1);
+    }
+  }
+
+  let selectedCount = 0;
+  let unresolvedCount = 0;
+  for (const [index, item] of importData.entries()) {
+    const hasExistingConflict = item.selected
+      && !!item.alias
+      && Object.prototype.hasOwnProperty.call(SECRETS, item.alias);
+    const hasDuplicateConflict = item.selected
+      && !!item.alias
+      && (aliasCounts.get(item.alias) || 0) > 1;
+    const messages = [];
+    if (item.selected) {
+      selectedCount += 1;
+      if (!item.alias) {
+        messages.push('Alias is required.');
+      }
+      if (!item.key) {
+        messages.push('Key is required.');
+      }
+      if (hasDuplicateConflict) {
+        messages.push('Duplicate alias in selected rows. Rename or deselect one row.');
+      }
+      if (hasExistingConflict && !item.replaceExisting) {
+        messages.push('Alias already exists. Choose Replace existing or rename.');
+      }
+      if (messages.length > 0) {
+        unresolvedCount += 1;
+      }
+    }
+
     const tr = document.createElement('tr');
     const preview = item.value.length > 40 ? item.value.substring(0, 40) + '...' : item.value;
+    tr.className = !item.selected
+      ? ''
+      : (messages.length > 0 ? 'import-row-conflict' : 'import-row-ready');
     tr.innerHTML = `
-      <td><span class="mono">${esc(item.alias)}</span></td>
+      <td><input type="checkbox" ${item.selected ? 'checked' : ''} onchange="setImportRowSelected(${index}, this.checked)"></td>
+      <td><input type="text" class="mono" value="${esc(item.alias)}" onchange="setImportRowAlias(${index}, this.value)"></td>
       <td><span class="mono">${esc(item.key)}</span></td>
-      <td><span class="mono" style="color:var(--text-muted)">${esc(preview)}</span></td>`;
+      <td><span class="mono" style="color:var(--text-muted)">${esc(preview)}</span></td>
+      <td class="conflict-cell">
+        ${hasExistingConflict ? `
+          <label class="replace-toggle">
+            <input type="checkbox" ${item.replaceExisting ? 'checked' : ''} onchange="setImportRowReplace(${index}, this.checked)">
+            <span>Replace existing</span>
+          </label>
+        ` : ''}
+        <div class="conflict-message ${messages.length > 0 ? 'error' : ''}">
+          ${esc(item.selected ? (messages.join(' ') || 'Ready to import.') : 'Skipped.')}
+        </div>
+      </td>`;
     body.appendChild(tr);
   }
 
   document.getElementById('importPreview').classList.toggle('show', importData.length > 0);
-  document.getElementById('importBtn').disabled = importData.length === 0;
+  document.getElementById('importConflictSummary').textContent = importData.length === 0
+    ? 'Load a file to preview import rows.'
+    : `${selectedCount} selected${unresolvedCount > 0 ? ` • ${unresolvedCount} need attention` : ' • ready to import'}`;
+  document.getElementById('importBtn').disabled = selectedCount === 0 || unresolvedCount > 0;
+}
+
+function setAllImportRows(selected) {
+  for (const row of importData) {
+    row.selected = selected;
+    if (!selected) {
+      row.replaceExisting = false;
+    }
+  }
+  renderImportRows();
+}
+
+function setImportRowSelected(index, selected) {
+  if (!importData[index]) {
+    return;
+  }
+  importData[index].selected = selected;
+  if (!selected) {
+    importData[index].replaceExisting = false;
+  }
+  renderImportRows();
+}
+
+function setImportRowAlias(index, alias) {
+  if (!importData[index]) {
+    return;
+  }
+  importData[index].alias = normalizeImportAlias(alias);
+  renderImportRows();
+}
+
+function setImportRowReplace(index, replaceExisting) {
+  if (!importData[index]) {
+    return;
+  }
+  importData[index].replaceExisting = replaceExisting;
+  renderImportRows();
+}
+
+function buildSelectedImportBundle(targetApp) {
+  const selectedRows = importData.filter(row => row.selected);
+  const selectedBySourceAlias = new Map(selectedRows.map(row => [row.sourceAlias, row]));
+  const secrets = selectedRows.map(row => ({
+    alias: row.alias,
+    key: row.key,
+    value: row.value,
+    description: row.description || '',
+    tags: Array.isArray(row.tags) ? row.tags.slice() : []
+  }));
+
+  if (!isBundleFormat(detectImportFormat(pendingImportFile ? pendingImportFile.name : '', pendingImportText))) {
+    const apps = [];
+    if (targetApp) {
+      const appData = APPS[targetApp] || { description: '', app_path: '' };
+      apps.push({
+        name: targetApp,
+        description: appData.description || '',
+        app_path: appData.app_path || '',
+        bindings: selectedRows.map(row => ({
+          alias: row.alias,
+          injected_as: row.key
+        }))
+      });
+    }
+    return { schema: 'enva-bundle', version: 1, secrets, apps };
+  }
+
+  const bundle = pendingImportBundle || { schema: 'enva-bundle', version: 1, secrets: [], apps: [] };
+  const apps = (bundle.apps || [])
+    .map(app => ({
+      name: app.name,
+      description: app.description || '',
+      app_path: app.app_path || '',
+      bindings: (app.bindings || [])
+        .filter(binding => selectedBySourceAlias.has(binding.alias))
+        .map(binding => {
+          const row = selectedBySourceAlias.get(binding.alias);
+          return {
+            alias: row.alias,
+            injected_as: binding.injected_as || row.key
+          };
+        })
+    }))
+    .filter(app => app.bindings.length > 0);
+
+  return {
+    schema: bundle.schema || 'enva-bundle',
+    version: bundle.version || 1,
+    secrets,
+    apps
+  };
 }
 
 async function doImport() {
@@ -2958,17 +3219,21 @@ async function doImport() {
     toast('Choose an import file first.', 'error');
     return;
   }
+  const selectedRows = importData.filter(row => row.selected);
+  if (selectedRows.length === 0) {
+    toast('Select at least one secret to import.', 'error');
+    return;
+  }
   const targetApp = document.getElementById('importTargetApp').value;
-  const selectedFormat = document.getElementById('importFormat').value;
   try {
+    const bundle = buildSelectedImportBundle(targetApp);
     const form = new FormData();
-    form.append('file', pendingImportFile, pendingImportFile.name);
-    if (selectedFormat && selectedFormat !== 'auto') {
-      form.append('format', selectedFormat);
-    }
-    if (targetApp) {
-      form.append('app', targetApp);
-    }
+    form.append(
+      'file',
+      new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }),
+      'selected-import.enva.json'
+    );
+    form.append('format', 'enva-json');
     const result = await apiFetch('/secrets/import', { method: 'POST', body: form });
     closeModal('importModal');
     loadSecretsFromAPI();
@@ -2982,6 +3247,125 @@ async function doImport() {
 }
 
 /* ─── Export ──────────────────────────────────────────── */
+function aliasesForExportScope(scope) {
+  if (scope === 'all') {
+    return Object.keys(SECRETS).sort();
+  }
+  return APPS[scope] ? APPS[scope].secrets.filter(alias => SECRETS[alias]).slice() : [];
+}
+
+function syncExportSelections(reset = false) {
+  const aliases = aliasesForExportScope(document.getElementById('exportScope').value);
+  if (reset) {
+    exportSelectionAliases = new Set(aliases);
+    return aliases;
+  }
+  exportSelectionAliases = new Set(aliases.filter(alias => exportSelectionAliases.has(alias)));
+  return aliases;
+}
+
+function renderExportSelectionList() {
+  const scope = document.getElementById('exportScope').value;
+  const aliases = syncExportSelections(false);
+  const list = document.getElementById('exportSelectionList');
+  const summary = document.getElementById('exportSelectionSummary');
+  list.innerHTML = '';
+
+  if (aliases.length === 0) {
+    list.innerHTML = '<div class="selection-row"><span class="selection-meta">No secrets available in this scope.</span></div>';
+    summary.textContent = 'No secrets available.';
+    return;
+  }
+
+  const app = scope !== 'all' ? APPS[scope] : null;
+  for (const alias of aliases) {
+    const secret = SECRETS[alias];
+    const exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    const row = document.createElement('div');
+    row.className = 'selection-row';
+    row.innerHTML = `
+      <input type="checkbox" ${exportSelectionAliases.has(alias) ? 'checked' : ''} onchange="setExportRowSelected('${esc(alias)}', this.checked)">
+      <div>
+        <div class="mono">${esc(alias)}</div>
+        <div class="selection-meta">${esc(exportedKey)}</div>
+      </div>
+      <div class="selection-meta">${esc(secret.updated || '')}</div>`;
+    list.appendChild(row);
+  }
+
+  summary.textContent = `${exportSelectionAliases.size} selected of ${aliases.length}`;
+}
+
+function setAllExportRows(selected) {
+  const aliases = aliasesForExportScope(document.getElementById('exportScope').value);
+  exportSelectionAliases = selected ? new Set(aliases) : new Set();
+  renderExportSelectionList();
+  updateExportPreview();
+}
+
+function setExportRowSelected(alias, selected) {
+  if (selected) {
+    exportSelectionAliases.add(alias);
+  } else {
+    exportSelectionAliases.delete(alias);
+  }
+  renderExportSelectionList();
+  updateExportPreview();
+}
+
+function bundleToYaml(bundle) {
+  return [
+    `schema: ${JSON.stringify(bundle.schema)}`,
+    `version: ${String(bundle.version)}`,
+    `secrets: ${JSON.stringify(bundle.secrets)}`,
+    `apps: ${JSON.stringify(bundle.apps)}`
+  ].join('\n');
+}
+
+function buildExportBundle(scope, entries) {
+  const selectedAliases = new Set(entries.map(entry => entry.alias));
+  const bundle = {
+    schema: 'enva-bundle',
+    version: 1,
+    secrets: entries.map(entry => ({
+      alias: entry.alias,
+      key: entry.originalKey,
+      value: entry.value,
+      description: entry.description || '',
+      tags: Array.isArray(entry.tags) ? entry.tags.slice() : []
+    })),
+    apps: []
+  };
+
+  const appNames = scope === 'all' ? Object.keys(APPS).sort() : (APPS[scope] ? [scope] : []);
+  for (const appName of appNames) {
+    const app = APPS[appName];
+    if (!app) {
+      continue;
+    }
+    const bindings = app.secrets
+      .filter(alias => selectedAliases.has(alias))
+      .map(alias => {
+        const entry = entries.find(item => item.alias === alias);
+        return {
+          alias,
+          injected_as: (app.overrides && app.overrides[alias]) || (entry ? entry.originalKey : SECRETS[alias].key)
+        };
+      });
+    if (bindings.length === 0) {
+      continue;
+    }
+    bundle.apps.push({
+      name: appName,
+      description: app.description || '',
+      app_path: app.app_path || '',
+      bindings
+    });
+  }
+
+  return bundle;
+}
+
 function doExport() {
   const scopeSel = document.getElementById('exportScope');
   scopeSel.innerHTML = '<option value="all">All Secrets (pool)</option>';
@@ -2989,8 +3373,14 @@ function doExport() {
     scopeSel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
   }
   if (currentView !== 'all') scopeSel.value = currentView;
+  syncExportSelections(true);
+  renderExportSelectionList();
   updateExportPreview();
-  scopeSel.onchange = updateExportPreview;
+  scopeSel.onchange = () => {
+    syncExportSelections(true);
+    renderExportSelectionList();
+    updateExportPreview();
+  };
   document.getElementById('exportFormat').onchange = updateExportPreview;
   openModal('exportModal');
 }
@@ -2999,13 +3389,41 @@ async function updateExportPreview() {
   const scope = document.getElementById('exportScope').value;
   const format = document.getElementById('exportFormat').value;
   document.getElementById('exportPreview').value = 'Loading...';
+  const selectedAliases = aliasesForExportScope(scope).filter(alias => exportSelectionAliases.has(alias));
+  if (selectedAliases.length === 0) {
+    document.getElementById('exportPreview').value = '';
+    return;
+  }
   try {
-    const params = new URLSearchParams();
-    params.set('format', format);
-    if (scope !== 'all') {
-      params.set('app', scope);
+    const app = scope !== 'all' ? APPS[scope] : null;
+    const entries = await Promise.all(
+      selectedAliases.map(alias =>
+        apiFetch(`/secrets/${encodeURIComponent(alias)}?reveal=true`).then(data => ({
+          alias,
+          key: app && app.overrides[alias] ? app.overrides[alias] : data.key,
+          originalKey: data.key,
+          value: data.value || '',
+          description: data.description || '',
+          tags: data.tags || []
+        }))
+      )
+    );
+
+    let output = '';
+    if (format === 'env') {
+      output = entries.map(entry => `${entry.key}=${entry.value}`).join('\n');
+    } else if (format === 'json') {
+      const payload = {};
+      for (const entry of entries) {
+        payload[entry.key] = entry.value;
+      }
+      output = JSON.stringify(payload, null, 2);
+    } else {
+      const bundle = buildExportBundle(scope, entries);
+      output = format === 'yaml'
+        ? bundleToYaml(bundle)
+        : JSON.stringify(bundle, null, 2);
     }
-    const output = await apiFetchText(`/secrets/export?${params.toString()}`);
     document.getElementById('exportPreview').value = output;
   } catch (err) {
     document.getElementById('exportPreview').value = `Error: ${err.message}`;

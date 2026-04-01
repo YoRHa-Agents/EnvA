@@ -86,7 +86,7 @@ File path: `~/.enva/config.yaml`
 
 | Mode | Behavior | Security |
 |------|----------|----------|
-| `exec` | Injects via a subprocess: `enva <app> -- <cmd>`; secrets exist only in the child process environment | High — secrets do not persist in the parent shell |
+| `exec` | Injects via a subprocess: `enva --cmd "<command>" <app>`; secrets exist only in the child process environment | High — secrets do not persist in the parent shell |
 | `export` | Injects into the current shell via `eval "$(enva vault export --app <app> --format env)"`  | Medium — should be paired with `history_protection` |
 
 ### 3.5 web — Web Management Interface
@@ -132,7 +132,7 @@ File path: `.enva.yaml` (project root directory)
 | `apps.<name>.description` | string | `""` | Human-readable description of the application; displayed in `enva vault list` output | Optional | `"Backend API service"` | L3, L4 |
 | `apps.<name>.secrets` | list\[string\] | `[]` | List of secret aliases referenced by this app; each alias points to a secret in the pool | Optional; list of strings, each must be a defined alias in the secrets pool | `["prod-db", "jwt-secret", "shared-sentry"]` | L3, L4 |
 | `apps.<name>.overrides` | map\[string, string\] | `{}` | Map of alias → custom env var name for injection override; aliases not in this map use the secret's own `key` value for injection | Optional; keys are aliases, values are valid env var names | `{"prod-db": "DB_URL"}` | L3, L4 |
-| `apps.<name>.app_path` | string | `""` | Local executable path used when running `enva <APP>` without an explicit `-- <cmd>` override | Optional; supports `~`, relative paths resolved from the current working directory at launch time, and absolute paths. If the vault entry for the app has a non-empty `app_path`, that value wins; otherwise this config value is used as a fallback | `"./bin/backend"` | L3, L4 |
+| `apps.<name>.app_path` | string | `""` | Local executable path used when running `enva <APP> [ARGS...]` | Optional; supports `~`, relative paths resolved from the current working directory at launch time, and absolute paths. If the vault entry for the app has a non-empty `app_path`, that value wins; otherwise this config value is used as a fallback | `"./bin/backend"` | L3, L4 |
 | `apps.<name>.override_system` | bool | `false` | Whether to override existing system environment variables with vault values when a name conflict occurs | Optional | `false` | L3, L4 |
 
 **Alias resolution injection logic**:
@@ -165,7 +165,7 @@ apps:
 
 In this example:
 - `backend` references 3 secrets; `prod-db` is injected as `DB_URL` (instead of the default `DATABASE_URL`)
-- `backend` can also be launched directly with `enva backend`, resolving `./bin/backend` from the current working directory
+- `backend` can also be launched directly with `enva backend --port 3000`, resolving `./bin/backend` from the current working directory and forwarding `--port 3000`
 - `frontend` references 1 secret; injected as `NEXT_PUBLIC_SENTRY_DSN` (instead of the default `SENTRY_DSN`)
 - `shared-sentry` is shared across multiple apps without duplication
 
@@ -178,7 +178,7 @@ File path: `.enva.{env}.yaml` (e.g. `.enva.staging.yaml`, `.enva.production.yaml
 The environment override file has the same field structure as the project configuration (Layer 3); all fields may appear. Activation:
 
 ```bash
-enva backend -- ./start.sh
+enva --env staging backend --port 3000
 ```
 
 Fields in the environment override file are **deep-merged** on top of the project configuration. Same-named apps under `apps` have their fields overridden one by one; differently named apps retain their definitions from the project configuration.
@@ -363,4 +363,4 @@ In standalone mode, host-framework integration fields in the config (if present)
 
 ---
 
-*Document version: 3.0 | Updated: 2026-03-27 | Data model: alias-based | Config format version: 1*
+*Document version: 3.0 | Updated: 2026-04-01 | Data model: alias-based | Config format version: 1*

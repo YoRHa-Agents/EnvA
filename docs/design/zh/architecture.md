@@ -96,7 +96,7 @@ sequenceDiagram
     participant VC as VaultCrypto
     participant CP as 子进程
 
-    U->>CLI: enva run --app backend -- ./my-app
+    U->>CLI: enva --cmd "./my-app" backend
     CLI->>CFG: 加载配置
     CFG-->>CLI: vault_path, app="backend", override_system
     CLI->>VS: load(vault_path, password)
@@ -256,4 +256,4 @@ crates/enva/
 
 ---
 
-*文档版本: 4.0 | 更新时间: 2026-03-28 | 架构: 纯 Rust (enva-core lib + enva binary)*
+*文档版本: 4.0 | 更新时间: 2026-04-01 | 架构: 纯 Rust (enva-core lib + enva binary)*

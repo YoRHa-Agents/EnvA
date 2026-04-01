@@ -96,7 +96,7 @@ sequenceDiagram
     participant VC as VaultCrypto
     participant CP as Child Process
 
-    U->>CLI: enva run --app backend -- ./my-app
+    U->>CLI: enva --cmd "./my-app" backend
     CLI->>CFG: Load config
     CFG-->>CLI: vault_path, app="backend", override_system
     CLI->>VS: load(vault_path, password)
@@ -256,4 +256,4 @@ crates/enva/
 
 ---
 
-*Document version: 4.0 | Updated: 2026-03-28 | Architecture: Pure Rust (enva-core lib + enva binary)*
+*Document version: 4.0 | Updated: 2026-04-01 | Architecture: Pure Rust (enva-core lib + enva binary)*

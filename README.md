@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.5.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release&color=c4a35a" alt="Latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.5.0-8b7355" alt="Changelog"></a>
+  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.0"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release&color=c4a35a" alt="Latest release"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.6.0-8b7355" alt="Changelog"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-e8e6e3" alt="MIT license"></a>
   <a href="https://yorha-agents.github.io/EnvA/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-c4a35a" alt="Documentation"></a>
 </p>
@@ -127,7 +127,7 @@ enva vault set db-url -k DATABASE_URL -V "postgres://user:pass@host/db"
 enva vault assign db-url --app backend
 
 # 4. Run a command with secrets injected
-enva backend -- printenv DATABASE_URL
+enva --cmd "printenv DATABASE_URL" backend
 
 # 5. Dry-run: see what would be injected
 enva backend
@@ -148,18 +148,23 @@ and legacy whole-vault deploy/sync-from actions.
 
 ```bash
 enva update
-enva update --version v0.5.0
+enva update --version v0.6.0
 enva update --force
 ```
 
 ### App Injection
 
 ```bash
-enva backend -- ./start-server
-enva worker  -- node worker.js
+# launch the configured app_path with forwarded argv
+enva backend --host 0.0.0.0 --port 8080
+enva worker --queue critical
+
+# run an arbitrary command with injected envs
+enva --cmd "./start-server" backend
+enva --cmd "node worker.js" worker
 ```
 
-Dry-run:
+Dry-run (when no `app_path` is configured):
 
 ```bash
 enva backend
@@ -168,7 +173,7 @@ enva backend
 For CI/scripting:
 
 ```bash
-echo "$VAULT_PASSWORD" | enva --password-stdin backend -- ./start-server
+echo "$VAULT_PASSWORD" | enva --password-stdin --cmd "./start-server" backend
 ```
 
 ### Global Options

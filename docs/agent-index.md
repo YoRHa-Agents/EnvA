@@ -28,8 +28,8 @@ enva vault self-test
 | Command | Description | Interactive? |
 |---------|-------------|-------------|
 | `enva` | Start web configuration UI on `127.0.0.1:8080` | No |
-| `enva <APP>` | Dry-run: list env vars that would be injected for APP | Yes (password) |
-| `enva <APP> -- <cmd> [args...]` | Inject env vars and exec cmd | Yes (password) |
+| `enva <APP> [ARGS...]` | Launch configured `app_path` with forwarded args; if no args and no `app_path`, show the dry-run env list | Yes (password) |
+| `enva --cmd "<command>" <APP>` | Inject env vars and run an arbitrary shell command | Yes (password) |
 | `enva serve [--port N] [--host H]` | Start web UI (explicit alias) | No |
 
 ### Vault management: `enva vault <subcommand>`
@@ -128,7 +128,8 @@ echo "my-vault-password" | enva --password-stdin --vault ./project.vault.json ba
 #     DATABASE_URL=<redacted>
 #     REDIS_URL=<redacted>
 #
-#   Run with a command to inject: enva backend -- <cmd>
+#   Run an arbitrary command with: enva --cmd "<command>" backend
+#   Tip: set app_path to launch directly with: enva backend [ARGS...]
 ```
 
 ### 4. Start web configuration UI
