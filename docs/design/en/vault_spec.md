@@ -190,7 +190,7 @@ Application reference configuration. Each application references secrets from th
 
 #### Injection Resolution Algorithm
 
-When running `enva <app_name> -- <command>`, environment variables are resolved and injected as follows:
+When running `enva <app_name> [args...]` or `enva --cmd "<command>" <app_name>`, environment variables are resolved and injected as follows:
 
 ```python
 for alias in apps[app_name]["secrets"]:
@@ -1141,5 +1141,5 @@ Implementers should ensure the following:
 
 ---
 
-*Document version: 3.0 | Format version: v2.0 | Updated: 2026-03-27*
+*Document version: 3.0 | Format version: v2.0 | Updated: 2026-04-01*
 *Related documents: [Technical Decisions](./secrets_manager_tech_decision.md) · [Research Report](./secrets_manager_research.md) · [Codebase Analysis](./secrets_manager_codebase_analysis.md)*

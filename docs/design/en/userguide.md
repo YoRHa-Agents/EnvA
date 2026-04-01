@@ -109,10 +109,16 @@ enva assign shared-sentry --app frontend \
 ### Step 4: Run with injection
 
 ```bash
-enva run --app backend --vault ~/.enva/vault.json -- ./my-app
+enva --vault ~/.enva/vault.json --cmd "./my-app" backend
 ```
 
 The subprocess receives three environment variables: `DATABASE_URL`, `JWT_SECRET`, and `SENTRY_DSN`. The secrets never appear in shell history or on disk in plaintext.
+
+If `backend` has an `app_path` configured, you can launch it directly and forward argv with:
+
+```bash
+enva --vault ~/.enva/vault.json backend --port 3000
+```
 
 ### Step 5: Verify
 
@@ -301,20 +307,38 @@ enva assign <ALIAS> --app <APP_NAME> [--as <OVERRIDE_KEY>]
 enva unassign <ALIAS> --app <APP_NAME> --vault vault.json
 ```
 
-### `enva run`
+### `enva <APP> [ARGS...]`
 
-Run a subprocess with secrets injected as environment variables.
+Launch the configured `app_path` for an app and forward any trailing argv.
 
 ```bash
-enva run --app <APP_NAME> -- <COMMAND> [ARGS...]
+enva <APP_NAME> [ARGS...]
 ```
 
 Examples:
 
 ```bash
-enva run --app backend --vault vault.json -- ./my-server
-enva run --app backend --vault vault.json -- docker compose up
-echo "$VAULT_PASSWORD" | enva --password-stdin run --app backend --vault vault.json -- ./start.sh
+enva --vault vault.json backend
+enva --vault vault.json backend --host 0.0.0.0 --port 8081
+echo "$VAULT_PASSWORD" | enva --password-stdin --vault vault.json backend --config config.yaml
+```
+
+If `app_path` is not configured and no argv is passed, Enva prints the environment variables that would be injected instead of launching a child process.
+
+### `enva --cmd "<command>" <APP>`
+
+Run an arbitrary shell command with the app's secrets injected as environment variables.
+
+```bash
+enva --cmd "<COMMAND>" <APP_NAME>
+```
+
+Examples:
+
+```bash
+enva --vault vault.json --cmd "./my-server" backend
+enva --vault vault.json --cmd "docker compose up" backend
+echo "$VAULT_PASSWORD" | enva --password-stdin --vault vault.json --cmd "./start.sh" backend
 ```
 
 ### `enva vault export` / `enva vault import`
@@ -462,5 +486,5 @@ There is no password recovery mechanism. If you forget the master password, the 
 
 ---
 
-*Document version: 2.0 | Updated: 2026-03-28*
+*Document version: 2.0 | Updated: 2026-04-01*
 *See also: [Architecture](architecture.md) · [Vault Format Spec](vault_spec.md) · [Config Reference](config_reference.md)*

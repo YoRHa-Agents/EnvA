@@ -9,6 +9,10 @@ mod vault;
 mod web;
 
 use clap::{Parser, Subcommand};
+use std::collections::BTreeMap;
+
+type InjectedEnv = BTreeMap<String, String>;
+type AppEnvAndPath = (InjectedEnv, Option<String>);
 
 #[derive(Parser)]
 #[command(
@@ -19,8 +23,8 @@ use clap::{Parser, Subcommand};
                    variables into applications.\n\n\
                    Usage patterns:\n  \
                    enva                          Start the web configuration UI\n  \
-                   enva <APP>                    Launch app_path with secrets (or dry-run if no path set)\n  \
-                   enva <APP> -- <cmd>           Inject env vars and exec <cmd>\n  \
+                   enva <APP> [ARGS...]          Launch app_path with secrets and forwarded args\n  \
+                   enva --cmd \"<command>\" <APP> Inject env vars and exec a shell command\n  \
                    enva vault <subcommand>       Manage vault contents\n  \
                    enva serve                    Start web UI (explicit alias)\n  \
                    enva --env staging vault list Load .enva.staging.yaml overlay"
@@ -48,6 +52,10 @@ struct Cli {
     /// Read password from stdin
     #[arg(long, global = true)]
     password_stdin: bool,
+
+    /// Run an arbitrary shell command with the selected app's injected env vars
+    #[arg(long, global = true, value_name = "COMMAND")]
+    cmd: Option<String>,
 
     /// Suppress non-essential output
     #[arg(short, long, global = true)]
@@ -320,6 +328,68 @@ fn resolve_launch_app_path(
     Ok(None)
 }
 
+fn resolve_app_env_and_path(
+    cli: &Cli,
+    app_name: &str,
+) -> Result<AppEnvAndPath, Box<dyn std::error::Error>> {
+    let vp = resolve_vault_path(cli)?;
+    let pw = get_password(cli)?;
+    let store = vault::VaultStore::load(&vp, &pw)?;
+    let injected = store.get_app_secrets(app_name)?;
+
+    let cfg = config::ConfigLoader::load(cli.config.as_deref(), cli.env.as_deref());
+    let override_system = cfg
+        .apps
+        .get(app_name)
+        .map(|a| a.override_system)
+        .unwrap_or(false);
+    let resolved = if override_system {
+        injected
+    } else {
+        injected
+            .into_iter()
+            .filter(|(k, _)| std::env::var(k).is_err())
+            .collect()
+    };
+    let launch_app_path = resolve_launch_app_path(&store, &cfg, app_name)?;
+    Ok((resolved, launch_app_path))
+}
+
+fn run_child_process(
+    program: &str,
+    args: &[&str],
+    envs: &InjectedEnv,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(program)
+            .args(args)
+            .envs(envs)
+            .exec();
+        Err(Box::new(err))
+    }
+    #[cfg(not(unix))]
+    {
+        let status = std::process::Command::new(program)
+            .args(args)
+            .envs(envs)
+            .status()?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
+fn run_shell_command(command: &str, envs: &InjectedEnv) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(unix)]
+    {
+        run_child_process("sh", &["-c", command], envs)
+    }
+    #[cfg(not(unix))]
+    {
+        run_child_process("cmd", &["/C", command], envs)
+    }
+}
+
 fn ssh_auth_options(
     ssh_password: Option<&String>,
     ssh_key: Option<&String>,
@@ -417,7 +487,10 @@ fn run_update_command(
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::debug!(command = ?cli.command, "dispatching command");
+    tracing::debug!(command = ?cli.command, shell_command = ?cli.cmd, "dispatching command");
+    if cli.cmd.is_some() && !matches!(cli.command, Some(Commands::External(_))) {
+        return Err("--cmd can only be used with `enva --cmd \"<command>\" <APP>`.".into());
+    }
     match &cli.command {
         None => run_serve(&cli, "127.0.0.1", 8080),
         Some(Commands::Update { version, force }) => {
@@ -446,52 +519,26 @@ fn run_app(cli: &Cli, args: &[String]) -> Result<(), Box<dyn std::error::Error>>
     }
 
     let app_name = &args[0];
-    tracing::debug!(app = %app_name, args = ?&args[1..], "running app injection");
+    let app_args: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
+    tracing::debug!(app = %app_name, args = ?app_args, shell_command = ?cli.cmd, "running app injection");
 
-    let separator = args.iter().position(|a| a == "--");
-    let command_args: Vec<&str> = match separator {
-        Some(pos) => args[pos + 1..].iter().map(|s| s.as_str()).collect(),
-        None => args[1..].iter().map(|s| s.as_str()).collect(),
-    };
+    if cli.cmd.is_some() && !app_args.is_empty() {
+        return Err("--cmd cannot be combined with launch arguments. Use either `enva --cmd \"<command>\" <APP>` or `enva <APP> [ARGS...]`.".into());
+    }
 
-    let vp = resolve_vault_path(cli)?;
-    let pw = get_password(cli)?;
-    let store = vault::VaultStore::load(&vp, &pw)?;
-    let injected = store.get_app_secrets(app_name)?;
+    let (resolved, launch_app_path) = resolve_app_env_and_path(cli, app_name)?;
 
-    let cfg = config::ConfigLoader::load(cli.config.as_deref(), cli.env.as_deref());
-    let override_system = cfg
-        .apps
-        .get(app_name)
-        .map(|a| a.override_system)
-        .unwrap_or(false);
-    let resolved: std::collections::BTreeMap<String, String> = if override_system {
-        injected
-    } else {
-        injected
-            .into_iter()
-            .filter(|(k, _)| std::env::var(k).is_err())
-            .collect()
-    };
-    let launch_app_path = resolve_launch_app_path(&store, &cfg, app_name)?;
+    if let Some(command) = cli.cmd.as_deref() {
+        tracing::debug!(app = %app_name, command, "running injected shell command");
+        return run_shell_command(command, &resolved);
+    }
 
-    if command_args.is_empty() {
-        if let Some(ref app_path) = launch_app_path {
-            tracing::debug!(app = %app_name, app_path = %app_path, "launching via app_path");
-            #[cfg(unix)]
-            {
-                use std::os::unix::process::CommandExt;
-                let err = std::process::Command::new(app_path).envs(&resolved).exec();
-                return Err(Box::new(err));
-            }
-            #[cfg(not(unix))]
-            {
-                let status = std::process::Command::new(&app_path)
-                    .envs(&resolved)
-                    .status()?;
-                std::process::exit(status.code().unwrap_or(1));
-            }
-        }
+    if let Some(ref app_path) = launch_app_path {
+        tracing::debug!(app = %app_name, app_path = %app_path, args = ?app_args, "launching via app_path");
+        return run_child_process(app_path, &app_args, &resolved);
+    }
+
+    if app_args.is_empty() {
         if resolved.is_empty() {
             println!("No secrets assigned to app '{app_name}'.");
         } else {
@@ -499,31 +546,16 @@ fn run_app(cli: &Cli, args: &[String]) -> Result<(), Box<dyn std::error::Error>>
             for key in resolved.keys() {
                 println!("  {key}=<redacted>");
             }
-            println!("\nRun with a command to inject: enva {app_name} -- <cmd>");
-            if launch_app_path.is_none() {
-                println!("Tip: set app_path to launch directly with: enva {app_name}");
-            }
+            println!("\nRun an arbitrary command with: enva --cmd \"<command>\" {app_name}");
+            println!("Tip: set app_path to launch directly with: enva {app_name} [ARGS...]");
         }
         return Ok(());
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let err = std::process::Command::new(command_args[0])
-            .args(&command_args[1..])
-            .envs(resolved)
-            .exec();
-        Err(Box::new(err))
-    }
-    #[cfg(not(unix))]
-    {
-        let status = std::process::Command::new(command_args[0])
-            .args(&command_args[1..])
-            .envs(resolved)
-            .status()?;
-        std::process::exit(status.code().unwrap_or(1));
-    }
+    Err(format!(
+        "App '{app_name}' has no configured app_path, so launch arguments cannot be forwarded. Set app_path in the vault or config, or use `enva --cmd \"<command>\" {app_name}`."
+    )
+    .into())
 }
 
 fn run_vault_command(cli: &Cli, cmd: &VaultCommands) -> Result<(), Box<dyn std::error::Error>> {
@@ -980,5 +1012,71 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn external_app_launch_arguments_preserve_leading_hyphen() {
+        let cli = Cli::try_parse_from(["enva", "backend", "--port", "3000"]).unwrap();
+        match cli.command.as_ref() {
+            Some(Commands::External(args)) => {
+                assert_eq!(
+                    args,
+                    &vec![
+                        "backend".to_string(),
+                        "--port".to_string(),
+                        "3000".to_string()
+                    ]
+                );
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn external_app_launch_arguments_preserve_literal_separator() {
+        let cli = Cli::try_parse_from(["enva", "backend", "--", "--literal"]).unwrap();
+        match cli.command.as_ref() {
+            Some(Commands::External(args)) => {
+                assert_eq!(
+                    args,
+                    &vec![
+                        "backend".to_string(),
+                        "--".to_string(),
+                        "--literal".to_string()
+                    ]
+                );
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cmd_option_parses_before_external_app() {
+        let cli = Cli::try_parse_from(["enva", "--cmd", "echo ok", "backend"]).unwrap();
+        assert_eq!(cli.cmd.as_deref(), Some("echo ok"));
+        match cli.command.as_ref() {
+            Some(Commands::External(args)) => {
+                assert_eq!(args, &vec!["backend".to_string()]);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cmd_option_requires_external_app() {
+        let cli = Cli::try_parse_from(["enva", "--cmd", "echo ok"]).unwrap();
+        let err = run(cli).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("--cmd can only be used with `enva --cmd \"<command>\" <APP>`."));
+    }
+
+    #[test]
+    fn cmd_option_rejects_combining_shell_command_with_launch_args() {
+        let cli = Cli::try_parse_from(["enva", "--cmd", "echo ok", "backend", "--port"]).unwrap();
+        let err = run(cli).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("--cmd cannot be combined with launch arguments."));
     }
 }

@@ -171,7 +171,9 @@ pub fn import_text(
         None => infer_import_format(text, options.source_name)?,
     };
     match format {
-        TransferFormat::Env => import_flat_entries(store, parse_env_entries(text)?, options.target_app, format),
+        TransferFormat::Env => {
+            import_flat_entries(store, parse_env_entries(text)?, options.target_app, format)
+        }
         TransferFormat::Json => import_flat_entries(
             store,
             parse_flat_json_entries(text)?,
@@ -222,10 +224,10 @@ pub fn infer_import_format(
 
 fn infer_json_format(text: &str) -> Result<TransferFormat, TransferError> {
     let value: serde_json::Value = serde_json::from_str(text)?;
-    let object = value
-        .as_object()
-        .ok_or(TransferError::InvalidFlatJson)?;
-    if object.contains_key("schema") || object.contains_key("apps") || object.contains_key("secrets")
+    let object = value.as_object().ok_or(TransferError::InvalidFlatJson)?;
+    if object.contains_key("schema")
+        || object.contains_key("apps")
+        || object.contains_key("secrets")
     {
         return Ok(TransferFormat::EnvaJson);
     }
@@ -404,8 +406,6 @@ fn import_bundle(
         let entry = store.get_app_entry_mut(&app.name)?;
         entry.description = app.description.clone();
         entry.app_path = app.app_path.clone();
-        entry.secrets.clear();
-        entry.overrides.clear();
         for binding in &app.bindings {
             let key = secret_keys.get(&binding.alias).ok_or_else(|| {
                 TransferError::MissingBundleSecret {
@@ -641,8 +641,12 @@ mod tests {
         store
             .set("api-key", "API_KEY", "super-secret", "token", &[])
             .unwrap();
-        store.create_app("backend", "Backend", "/srv/backend").unwrap();
-        store.assign("backend", "db-url", Some("BACKEND_DB")).unwrap();
+        store
+            .create_app("backend", "Backend", "/srv/backend")
+            .unwrap();
+        store
+            .assign("backend", "db-url", Some("BACKEND_DB"))
+            .unwrap();
         store.assign("backend", "api-key", None).unwrap();
         store
     }
@@ -734,6 +738,60 @@ mod tests {
         .unwrap();
 
         let resolved = imported.get_app_secrets("backend").unwrap();
+        assert_eq!(resolved["BACKEND_DB"], "postgres://example");
+    }
+
+    #[test]
+    fn bundle_import_merges_existing_app_bindings() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("merge-existing.vault.json");
+        let mut store = VaultStore::create(path.to_str().unwrap(), "testpass", None).unwrap();
+        store
+            .set("existing", "EXISTING_KEY", "existing-value", "", &[])
+            .unwrap();
+        store
+            .set("db-url", "DATABASE_URL", "postgres://example", "", &[])
+            .unwrap();
+        store
+            .create_app("backend", "Backend", "/srv/backend")
+            .unwrap();
+        store.assign("backend", "existing", None).unwrap();
+
+        let bundle = PortableBundle {
+            schema: BUNDLE_SCHEMA.to_string(),
+            version: BUNDLE_VERSION,
+            secrets: vec![PortableSecret {
+                alias: "db-url".to_string(),
+                key: "DATABASE_URL".to_string(),
+                value: "postgres://example".to_string(),
+                description: String::new(),
+                tags: vec![],
+            }],
+            apps: vec![PortableApp {
+                name: "backend".to_string(),
+                description: "Backend".to_string(),
+                app_path: "/srv/backend".to_string(),
+                bindings: vec![PortableBinding {
+                    alias: "db-url".to_string(),
+                    injected_as: "BACKEND_DB".to_string(),
+                }],
+            }],
+        };
+
+        let payload = serde_json::to_string(&bundle).unwrap();
+        import_text(
+            &mut store,
+            &payload,
+            ImportOptions {
+                format: Some(TransferFormat::EnvaJson),
+                source_name: Some("bundle.json"),
+                target_app: None,
+            },
+        )
+        .unwrap();
+
+        let resolved = store.get_app_secrets("backend").unwrap();
+        assert_eq!(resolved["EXISTING_KEY"], "existing-value");
         assert_eq!(resolved["BACKEND_DB"], "postgres://example");
     }
 
