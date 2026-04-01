@@ -44,8 +44,8 @@ enva vault self-test
 | `delete` | `enva vault delete <alias> [--yes]` | Delete a secret (`--yes` skips confirm) | Yes (password + confirm) |
 | `assign` | `enva vault assign <alias> --app <name> [--as <KEY>]` | Assign secret to app (auto-creates app) | Yes (password) |
 | `unassign` | `enva vault unassign <alias> --app <name>` | Remove secret from app | Yes (password) |
-| `export` | `enva vault export --app <name> [--format json]` | Export resolved secrets (env or json) | Yes (password) |
-| `import-env` | `enva vault import-env --from <.env file> --app <name>` | Import .env file into vault | Yes (password) |
+| `export` | `enva vault export [--app <name>] [--format env\|json\|enva-json\|yaml]` | Export resolved secrets or portable bundles | Yes (password) |
+| `import` | `enva vault import --from <file> [--format env\|json\|enva-json\|yaml] [--app <name>]` | Import flat env/json files or portable bundles (`import-env` remains an alias) | Yes (password) |
 | `self-test` | `enva vault self-test` | Verify crypto primitives work | No |
 
 ### Global flags (all commands)
@@ -142,7 +142,7 @@ enva serve --port 3000            # custom port
 
 ```bash
 echo "my-vault-password" | enva --password-stdin --vault ./project.vault.json \
-  vault import-env --from .env --app backend
+  vault import --from .env --app backend
 
 # Verify import
 echo "my-vault-password" | enva --password-stdin --vault ./project.vault.json \

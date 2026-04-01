@@ -478,31 +478,31 @@ echo "$VAULT_PASSWORD" | secrets run --password-stdin --app backend --vault ./va
 
 ---
 
-#### 1.4.7 `secrets export`
+#### 1.4.7 `enva vault export`
 
-**功能**: 导出指定 app 解析后的环境变量（alias 解析 + overrides 应用后）。
+**功能**: 导出解析后的环境变量或可移植的 Enva bundle。
 
 **签名**:
 
-```
-secrets export --app NAME [--vault PATH] [--format FORMAT]
+```bash
+enva vault export [--app NAME] [--vault PATH] [--format FORMAT]
 ```
 
 | 参数/选项 | 类型 | 必填 | 默认值 | 说明 |
 |-----------|------|------|--------|------|
-| `--app` | `str` | 是 | — | 应用名称 |
-| `--vault` | `click.Path` | 否 | 全局默认 | vault 文件路径 |
-| `--format` | `click.Choice(["env", "json"])` | 否 | `env` | 输出格式 |
+| `--app` | `str` | 否 | `None` | 应用名称；省略时导出整个 secret 池 |
+| `--vault` | `path` | 否 | 全局默认 | vault 文件路径 |
+| `--format` | `string` (`env` \| `json` \| `enva-json` \| `yaml`) | 否 | `env` | 输出格式 |
 
 **stdout**（`--format env`）:
 
-```
-export API_KEY='sk-abc123'
-export DATABASE_URL='postgres://user:pass@host:5432/db'
-export REDIS_URL='redis://localhost:6379/0'
+```bash
+export API_KEY=sk-abc123
+export DATABASE_URL=postgres://user:pass@host:5432/db
+export REDIS_URL=redis://localhost:6379/0
 ```
 
-格式规则：value 使用单引号包裹，内部单引号转义为 `'\''`。
+这是 shell 场景下的导出形式，保留 `export ` 前缀。
 
 **stdout**（`--format json`）:
 
@@ -514,38 +514,72 @@ export REDIS_URL='redis://localhost:6379/0'
 }
 ```
 
+**stdout**（`--format enva-json`）:
+
+```json
+{
+  "schema": "enva-bundle",
+  "version": 1,
+  "secrets": [
+    {
+      "alias": "database-url",
+      "key": "DATABASE_URL",
+      "value": "postgres://user:pass@host:5432/db",
+      "description": "",
+      "tags": []
+    }
+  ],
+  "apps": [
+    {
+      "name": "backend",
+      "description": "",
+      "app_path": "",
+      "bindings": [
+        {
+          "alias": "database-url",
+          "injected_as": "DATABASE_URL"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`--format yaml` 导出相同的可移植 bundle schema，只是编码为 YAML。
+
 **示例**:
 
 ```bash
 # eval 注入当前 shell
-eval "$(secrets export --app backend --vault ./vault.json)"
+eval "$(enva vault export --app backend --vault ./vault.json)"
 
 # 导出 JSON 供程序读取
-secrets export --app backend --vault ./vault.json --format json > /tmp/secrets.json
+enva vault export --app backend --vault ./vault.json --format json > /tmp/secrets.json
 
 # 管道到 Docker
-secrets export --app backend --vault ./vault.json --format env | xargs docker run --env
+enva vault export --app backend --vault ./vault.json --format yaml > /tmp/backend.bundle.yaml
 ```
 
 ---
 
-#### 1.4.8 `secrets import`
+#### 1.4.8 `enva vault import`
 
-**功能**: 从 `.env` 文件导入 key-value 对到密钥池，并自动从 key 名生成 alias（如 `DATABASE_URL` → `database-url`）。同时将导入的 secrets 分配给指定 app。
+**功能**: 将平铺的 `.env` / `json` 文件或可移植的 Enva bundle 导入 vault。
 
 **签名**:
 
-```
-secrets import --from FILE --app NAME [--vault PATH]
+```bash
+enva vault import --from FILE [--format FORMAT] [--app NAME] [--vault PATH]
 ```
 
 | 参数/选项 | 类型 | 必填 | 默认值 | 说明 |
 |-----------|------|------|--------|------|
-| `--from` | `click.Path(exists=True)` | 是 | — | 源 `.env` 文件路径。格式：每行 `KEY=VALUE`，支持 `#` 注释、空行、引号值。 |
-| `--app` | `str` | 是 | — | 导入后自动分配到的应用名称 |
-| `--vault` | `click.Path` | 否 | 全局默认 | vault 文件路径 |
+| `--from` | `path` | 是 | — | 源文件路径 |
+| `--format` | `string` (`env` \| `json` \| `enva-json` \| `yaml`) | 否 | 按扩展名 / 内容自动推断 | 导入格式 |
+| `--app` | `str` | 否 | `None` | 平铺 `.env` / 平铺 `json` 导入时的目标 app。bundle 导入会保留文件内的 app bindings，并拒绝同时传 `--app`。 |
+| `--vault` | `path` | 否 | 全局默认 | vault 文件路径 |
 
-**`.env` 解析规则**:
+**平铺 `.env` 解析规则**:
 - 忽略空行和 `#` 开头的注释行
 - `KEY=VALUE` — 去除 VALUE 两端空白
 - `KEY="VALUE"` — 去除双引号，处理 `\n`/`\t`/`\\`/`\"` 转义
@@ -553,20 +587,23 @@ secrets import --from FILE --app NAME [--vault PATH]
 - `export KEY=VALUE` — 忽略 `export ` 前缀
 - 重复 key 以最后出现的为准
 
-**stdout**: 无
+**补充格式规则**:
+- `json` 期望为 string 值的平铺对象，例如 `{ "DATABASE_URL": "..." }`
+- `enva-json` 和 `yaml` 使用同一个可移植 bundle schema，包含 `schema`、`version`、`secrets[]`、`apps[]`
+- `import-env` 仍保留为面向 `.env` 工作流的兼容 alias
 
-**stderr**（正常）:
+**stdout**（正常）:
 
 ```
-✓ Imported 5 secrets into pool and assigned to app "backend" from .env.production
-  New aliases: database-url, redis-url, jwt-secret
-  Updated aliases: api-key, sentry-dsn
+Imported 5 secrets into app 'backend' from env
 ```
 
 **示例**:
 
 ```bash
-secrets import --from .env.production --app backend --vault ./vault.json
+enva vault import --from .env.production --app backend --vault ./vault.json
+enva vault import --from ./flat-secrets.json --format json --vault ./vault.json
+enva vault import --from ./backend.bundle.yaml --vault ./vault.json
 ```
 
 ---
@@ -698,7 +735,7 @@ export HISTCONTROL="ignorespace:${HISTCONTROL}"
 ```bash
 __secrets_inject() {
     # 前缀空格使 bash 不记录到 history
-     eval "$( secrets export --app "$app" --vault "$vault" --quiet)"
+     eval "$( enva vault export --app "$app" --vault "$vault" --quiet)"
 }
 ```
 
@@ -1275,33 +1312,37 @@ Content-Type: multipart/form-data
 
 | 表单字段 | 类型 | 必填 | 默认值 | 说明 |
 |---------|------|------|--------|------|
-| `file` | `UploadFile` | 是 | — | `.env` 格式文件 |
-| `app` | `string` | 否 | `None`（global 域） | 目标 app 名称 |
+| `file` | `UploadFile` | 是 | — | `.env`、平铺 `json`、可移植 `enva-json` 或 `yaml` bundle |
+| `format` | `string` (`env` \| `json` \| `enva-json` \| `yaml` \| `auto`) | 否 | 推断 / `auto` | 显式指定导入格式 |
+| `app` | `string` | 否 | `None`（global 域） | 平铺 `.env` / 平铺 `json` 导入时的目标 app。bundle 导入会保留文件内 bindings，并拒绝同时传此字段。 |
 
 **成功响应** (`200 OK`):
 
 ```json
 {
-  "imported": 5,
-  "details": {
-    "new": ["DATABASE_URL", "REDIS_URL", "JWT_SECRET"],
-    "updated": ["API_KEY", "SENTRY_DSN"]
+  "status": "imported",
+  "summary": {
+    "format": "yaml",
+    "imported_secrets": 5,
+    "imported_apps": 1,
+    "assigned_bindings": 5
   }
 }
 ```
 
 | 响应字段 | 类型 | 说明 |
 |---------|------|------|
-| `imported` | `integer` | 导入的 key 总数 |
-| `details.new` | `array[string]` | 新增的 key 名称列表 |
-| `details.updated` | `array[string]` | 更新的 key 名称列表 |
+| `status` | `string` | 成功时固定为 `"imported"` |
+| `summary.format` | `string` | 实际采用的导入格式 |
+| `summary.imported_secrets` | `integer` | 导入的 secret 总数 |
+| `summary.imported_apps` | `integer` | 导入的 bundle app 数量 |
+| `summary.assigned_bindings` | `integer` | 导入过程中分配的 app binding 数量 |
 
-**空文件或无有效 key** (`422 Unprocessable Entity`):
+**格式不支持或内容无效** (`400 Bad Request`):
 
 ```json
 {
-  "error": "validation_error",
-  "message": "No valid key-value pairs found in uploaded file"
+  "error": "unsupported format 'toml'. Supported formats: env, json, enva-json, yaml, yml"
 }
 ```
 
@@ -1319,7 +1360,7 @@ Authorization: Bearer <token>
 | 查询参数 | 类型 | 必填 | 默认值 | 说明 |
 |---------|------|------|--------|------|
 | `app` | `string` | 否 | `None`（global 域） | 应用名称 |
-| `format` | `string` (`env` \| `json`) | 否 | `env` | 导出格式 |
+| `format` | `string` (`env` \| `json` \| `enva-json` \| `yaml`) | 否 | `env` | 导出格式 |
 
 **成功响应**（`format=env`，`200 OK`，`Content-Type: text/plain`）:
 
@@ -1340,6 +1381,19 @@ JWT_SECRET=super-secret-jwt-key
   "JWT_SECRET": "super-secret-jwt-key"
 }
 ```
+
+**成功响应**（`format=enva-json`，`200 OK`，`Content-Type: application/json`）:
+
+```json
+{
+  "schema": "enva-bundle",
+  "version": 1,
+  "secrets": [],
+  "apps": []
+}
+```
+
+`format=yaml` 返回相同的可移植 bundle schema，只是编码为 YAML。
 
 ---
 
@@ -1492,8 +1546,8 @@ Web 管理界面为静态 SPA（单页应用），由 Axum 进程直接托管提
 | `assign` | `ALIAS`, `--app` | `--as`, `--vault` | 0, 1, 2, 3 |
 | `unassign` | `ALIAS`, `--app` | `--vault` | 0, 1, 2, 3 |
 | `run` | `COMMAND [ARGS]`, `--app` | `--vault` | 0, 1, 2, 子进程退出码 |
-| `export` | `--app` | `--vault`, `--format` | 0, 1, 2 |
-| `import` | `--from FILE`, `--app` | `--vault` | 0, 1, 2 |
+| `export` | — | `--app`, `--vault`, `--format` | 0, 1, 2 |
+| `import` | `--from FILE` | `--app`, `--format`, `--vault` | 0, 1, 2 |
 | `serve` | — | `--port`, `--host`, `--vault` | 0, 1 |
 | `self-test` | — | — | 0, 1 |
 

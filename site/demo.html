@@ -556,19 +556,29 @@ code, .mono { font-family:var(--font-mono); }
 <div class="modal-overlay" id="importModal">
   <div class="modal modal-wide">
     <div class="modal-header">
-      <h3>「 Import from .env 」</h3>
+      <h3>「 Import Secrets 」</h3>
       <button class="modal-close" onclick="closeModal('importModal')">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
     <div class="modal-body">
       <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
-        <p>Drop .env file here or click to browse</p>
-        <div class="hint">Supports KEY=VALUE format</div>
+        <p>Drop a secrets file here or click to browse</p>
+        <div class="hint">Supports .env, flat JSON, Enva JSON bundles, and YAML bundles</div>
       </div>
-      <input type="file" id="fileInput" accept=".env,.txt" style="display:none" onchange="handleFileSelect(event)">
+      <input type="file" id="fileInput" accept=".env,.txt,.json,.yaml,.yml" style="display:none" onchange="handleFileSelect(event)">
       <div class="field-group" style="margin-top:14px">
-        <label>Target App (optional)</label>
+        <label>Import Format</label>
+        <select id="importFormat">
+          <option value="auto">Auto-detect</option>
+          <option value="env">.env</option>
+          <option value="json">Flat JSON</option>
+          <option value="enva-json">Enva JSON Bundle</option>
+          <option value="yaml">YAML Bundle</option>
+        </select>
+      </div>
+      <div class="field-group" style="margin-top:14px">
+        <label>Target App for Flat Imports (optional)</label>
         <select id="importTargetApp"><option value="">— Pool only —</option></select>
       </div>
       <div class="import-preview" id="importPreview">
@@ -597,7 +607,7 @@ code, .mono { font-family:var(--font-mono); }
       </div>
       <div class="field-group">
         <label>Format</label>
-        <select id="exportFormat"><option value="env">.env</option><option value="json">JSON</option></select>
+        <select id="exportFormat"><option value="env">.env</option><option value="json">JSON</option><option value="enva-json">Enva JSON Bundle</option><option value="yaml">YAML Bundle</option></select>
       </div>
       <div class="field-group">
         <label>Preview</label>
@@ -673,6 +683,8 @@ let currentView = 'all';
 let revealedValues = new Set();
 let editingAlias = null;
 let importData = [];
+let pendingImportFile = null;
+let pendingImportText = '';
 let confirmCallback = null;
 
 function loadState() {
@@ -1092,10 +1104,13 @@ function doAssign() {
 
 function openImportModal() {
   importData = [];
+  pendingImportFile = null;
+  pendingImportText = '';
   document.getElementById('importPreview').classList.remove('show');
   document.getElementById('importPreviewBody').innerHTML = '';
   document.getElementById('importBtn').disabled = true;
   document.getElementById('fileInput').value = '';
+  document.getElementById('importFormat').value = 'auto';
   var sel = document.getElementById('importTargetApp');
   sel.innerHTML = '<option value="">— Pool only —</option>';
   for (var name in APPS) { sel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>'; }
@@ -1105,9 +1120,7 @@ function openImportModal() {
 function handleFileSelect(e) {
   var file = e.target.files[0];
   if (!file) { return; }
-  var reader = new FileReader();
-  reader.onload = function(ev) { parseEnvContent(ev.target.result); };
-  reader.readAsText(file);
+  loadImportFile(file);
 }
 
 var dropzone = document.getElementById('dropzone');
@@ -1117,21 +1130,129 @@ dropzone.addEventListener('drop', function(e) {
   e.preventDefault();
   dropzone.classList.remove('dragover');
   var file = e.dataTransfer.files[0];
-  if (file) { var reader = new FileReader(); reader.onload = function(ev) { parseEnvContent(ev.target.result); }; reader.readAsText(file); }
+  if (file) { loadImportFile(file); }
 });
 
-function parseEnvContent(text) {
-  importData = [];
+document.getElementById('importFormat').addEventListener('change', function() {
+  if (pendingImportFile) {
+    renderImportPreview(pendingImportFile.name, pendingImportText);
+  }
+});
+
+function loadImportFile(file) {
+  pendingImportFile = file;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    pendingImportText = String(ev.target.result || '');
+    renderImportPreview(file.name, pendingImportText);
+  };
+  reader.readAsText(file);
+}
+
+function detectImportFormat(fileName, text) {
+  var selected = document.getElementById('importFormat').value;
+  if (selected && selected !== 'auto') { return selected; }
+  var lower = (fileName || '').toLowerCase();
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) { return 'yaml'; }
+  if (lower.endsWith('.json')) {
+    try {
+      var parsed = JSON.parse(text);
+      if (parsed && parsed.schema === 'enva-bundle') { return 'enva-json'; }
+    } catch (_) {}
+    return 'json';
+  }
+  return 'env';
+}
+
+function normalizeAlias(key) {
+  return String(key || '').toLowerCase().replace(/_/g, '-');
+}
+
+function previewEnvEntries(text) {
+  var rows = [];
   var lines = text.split('\n');
   for (var i = 0; i < lines.length; i++) {
     var trimmed = lines[i].trim();
     if (!trimmed || trimmed.charAt(0) === '#') { continue; }
+    if (trimmed.indexOf('export ') === 0) { trimmed = trimmed.substring(7).trim(); }
     var eqIdx = trimmed.indexOf('=');
     if (eqIdx === -1) { continue; }
     var key = trimmed.substring(0, eqIdx).trim();
     var val = trimmed.substring(eqIdx + 1).trim();
-    if ((val.charAt(0) === '"' && val.charAt(val.length-1) === '"') || (val.charAt(0) === "'" && val.charAt(val.length-1) === "'")) { val = val.slice(1, -1); }
-    importData.push({ alias:key.toLowerCase().replace(/_/g, '-'), key:key, value:val });
+    if ((val.charAt(0) === '"' && val.charAt(val.length - 1) === '"') || (val.charAt(0) === "'" && val.charAt(val.length - 1) === "'")) {
+      val = val.slice(1, -1);
+    }
+    rows.push({ alias: normalizeAlias(key), key: key, value: val });
+  }
+  return rows;
+}
+
+function previewJsonEntries(text) {
+  var parsed = JSON.parse(text);
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw new Error('Flat JSON imports must be an object of string values.');
+  }
+  var rows = [];
+  for (var key in parsed) {
+    if (typeof parsed[key] !== 'string') {
+      throw new Error('Flat JSON imports only support string values.');
+    }
+    rows.push({ alias: normalizeAlias(key), key: key, value: parsed[key] });
+  }
+  return rows;
+}
+
+function parseBundleYaml(text) {
+  var bundle = {};
+  var lines = text.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line || line.charAt(0) === '#') { continue; }
+    var idx = line.indexOf(':');
+    if (idx === -1) { continue; }
+    var key = line.substring(0, idx).trim();
+    var raw = line.substring(idx + 1).trim();
+    if (!raw) { continue; }
+    if (key === 'version') {
+      bundle.version = Number(raw);
+    } else {
+      bundle[key] = JSON.parse(raw);
+    }
+  }
+  if (!bundle.schema || bundle.schema !== 'enva-bundle') {
+    throw new Error('Expected a YAML bundle generated by the simulation export.');
+  }
+  bundle.secrets = bundle.secrets || [];
+  bundle.apps = bundle.apps || [];
+  return bundle;
+}
+
+function previewBundleEntries(bundle) {
+  var secrets = bundle.secrets || [];
+  return secrets.map(function(secret) {
+    return { alias: secret.alias || '', key: secret.key || '', value: secret.value || '' };
+  });
+}
+
+function renderImportPreview(fileName, text) {
+  importData = [];
+  var format = detectImportFormat(fileName, text);
+  try {
+    if (format === 'env') {
+      importData = previewEnvEntries(text);
+    } else if (format === 'json') {
+      importData = previewJsonEntries(text);
+    } else if (format === 'enva-json') {
+      importData = previewBundleEntries(JSON.parse(text));
+    } else {
+      importData = previewBundleEntries(parseBundleYaml(text));
+    }
+  } catch (err) {
+    document.getElementById('importPreview').classList.remove('show');
+    document.getElementById('importPreviewBody').innerHTML = '';
+    document.getElementById('importBtn').disabled = true;
+    toast(err.message, 'error');
+    return;
   }
   var body = document.getElementById('importPreviewBody');
   body.innerHTML = '';
@@ -1146,24 +1267,141 @@ function parseEnvContent(text) {
   document.getElementById('importBtn').disabled = importData.length === 0;
 }
 
+function buildBundle(scope) {
+  var bundle = { schema: 'enva-bundle', version: 1, secrets: [], apps: [] };
+  var aliases = [];
+  if (scope === 'all') {
+    for (var alias in SECRETS) { aliases.push(alias); }
+  } else {
+    var app = APPS[scope];
+    if (app) { aliases = app.secrets.slice(); }
+  }
+  aliases.sort();
+  for (var i = 0; i < aliases.length; i++) {
+    var alias = aliases[i];
+    var secret = SECRETS[alias];
+    if (!secret) { continue; }
+    bundle.secrets.push({
+      alias: alias,
+      key: secret.key,
+      value: secret.value,
+      description: secret.description || '',
+      tags: (secret.tags || []).slice()
+    });
+  }
+  var appNames = scope === 'all' ? Object.keys(APPS).sort() : [scope];
+  for (var j = 0; j < appNames.length; j++) {
+    var name = appNames[j];
+    var appData = APPS[name];
+    if (!appData) { continue; }
+    var bindings = [];
+    for (var k = 0; k < appData.secrets.length; k++) {
+      var boundAlias = appData.secrets[k];
+      var boundSecret = SECRETS[boundAlias];
+      if (!boundSecret) { continue; }
+      bindings.push({
+        alias: boundAlias,
+        injected_as: (appData.overrides && appData.overrides[boundAlias]) || boundSecret.key
+      });
+    }
+    bundle.apps.push({
+      name: name,
+      description: appData.description || '',
+      app_path: appData.app_path || '',
+      bindings: bindings
+    });
+  }
+  return bundle;
+}
+
+function bundleToYaml(bundle) {
+  return [
+    'schema: ' + JSON.stringify(bundle.schema),
+    'version: ' + String(bundle.version),
+    'secrets: ' + JSON.stringify(bundle.secrets),
+    'apps: ' + JSON.stringify(bundle.apps)
+  ].join('\n');
+}
+
+function applyBundle(bundle) {
+  if (!bundle || bundle.schema !== 'enva-bundle') {
+    throw new Error('Expected an Enva bundle with schema "enva-bundle".');
+  }
+  var importedSecrets = 0;
+  var importedApps = 0;
+  for (var i = 0; i < (bundle.secrets || []).length; i++) {
+    var secret = bundle.secrets[i];
+    SECRETS[secret.alias] = {
+      key: secret.key,
+      value: secret.value,
+      description: secret.description || '',
+      tags: (secret.tags || []).slice(),
+      updated: new Date().toISOString()
+    };
+    importedSecrets++;
+  }
+  for (var j = 0; j < (bundle.apps || []).length; j++) {
+    var app = bundle.apps[j];
+    if (!APPS[app.name]) {
+      APPS[app.name] = { description: '', app_path: '', secrets: [], overrides: {} };
+    }
+    APPS[app.name].description = app.description || '';
+    APPS[app.name].app_path = app.app_path || '';
+    if (!APPS[app.name].secrets) { APPS[app.name].secrets = []; }
+    if (!APPS[app.name].overrides) { APPS[app.name].overrides = {}; }
+    for (var k = 0; k < (app.bindings || []).length; k++) {
+      var binding = app.bindings[k];
+      if (APPS[app.name].secrets.indexOf(binding.alias) === -1) {
+        APPS[app.name].secrets.push(binding.alias);
+      }
+      if (!SECRETS[binding.alias]) {
+        throw new Error('Bundle binding references missing secret "' + binding.alias + '".');
+      }
+      if (binding.injected_as && binding.injected_as !== SECRETS[binding.alias].key) {
+        APPS[app.name].overrides[binding.alias] = binding.injected_as;
+      } else {
+        delete APPS[app.name].overrides[binding.alias];
+      }
+    }
+    importedApps++;
+  }
+  return { imported_secrets: importedSecrets, imported_apps: importedApps };
+}
+
 function doImport() {
+  if (!pendingImportFile) {
+    toast('Choose an import file first.');
+    return;
+  }
   var targetApp = document.getElementById('importTargetApp').value;
-  var count = 0;
-  for (var i = 0; i < importData.length; i++) {
-    var item = importData[i];
-    var alias = item.alias;
-    var suffix = 1;
-    while (SECRETS[alias]) { alias = item.alias + '-' + suffix; suffix++; }
-    SECRETS[alias] = { key:item.key, value:item.value, description:'', tags:[], updated:new Date().toISOString() };
-    if (targetApp && APPS[targetApp]) { if (APPS[targetApp].secrets.indexOf(alias) === -1) { APPS[targetApp].secrets.push(alias); } }
-    count++;
+  var format = detectImportFormat(pendingImportFile ? pendingImportFile.name : '', pendingImportText);
+  var summary;
+  if (format === 'env' || format === 'json') {
+    var count = 0;
+    for (var i = 0; i < importData.length; i++) {
+      var item = importData[i];
+      var alias = item.alias;
+      var suffix = 1;
+      while (SECRETS[alias]) { alias = item.alias + '-' + suffix; suffix++; }
+      SECRETS[alias] = { key:item.key, value:item.value, description:'', tags:[], updated:new Date().toISOString() };
+      if (targetApp) {
+        if (!APPS[targetApp]) { APPS[targetApp] = { description:'', app_path:'', secrets:[], overrides:{} }; }
+        if (APPS[targetApp].secrets.indexOf(alias) === -1) { APPS[targetApp].secrets.push(alias); }
+      }
+      count++;
+    }
+    summary = { imported_secrets: count, imported_apps: 0 };
+  } else if (format === 'enva-json') {
+    summary = applyBundle(JSON.parse(pendingImportText));
+  } else {
+    summary = applyBundle(parseBundleYaml(pendingImportText));
   }
   saveState();
   closeModal('importModal');
   renderSidebar();
   renderTable();
-  cliLog('enva vault import-env --from .env', 'Imported ' + count + ' secret(s).');
-  toast('Imported ' + count + ' secret(s).');
+  cliLog('enva vault import --from import-file', 'Imported ' + summary.imported_secrets + ' secret(s).');
+  toast('Imported ' + summary.imported_secrets + ' secret(s)' + (summary.imported_apps ? ' and ' + summary.imported_apps + ' app(s).' : '.'));
 }
 
 function doExport() {
@@ -1196,10 +1434,14 @@ function updateExportPreview() {
   var output;
   if (format === 'env') {
     output = entries.map(function(e) { return e.key + '=' + e.value; }).join('\n');
-  } else {
+  } else if (format === 'json') {
     var obj = {};
     for (var j = 0; j < entries.length; j++) { obj[entries[j].key] = entries[j].value; }
     output = JSON.stringify(obj, null, 2);
+  } else if (format === 'enva-json') {
+    output = JSON.stringify(buildBundle(scope), null, 2);
+  } else {
+    output = bundleToYaml(buildBundle(scope));
   }
   document.getElementById('exportPreview').value = output;
 }

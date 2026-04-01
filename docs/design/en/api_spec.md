@@ -478,31 +478,31 @@ echo "$VAULT_PASSWORD" | secrets run --password-stdin --app backend --vault ./va
 
 ---
 
-#### 1.4.7 `secrets export`
+#### 1.4.7 `enva vault export`
 
-**Purpose**: Export the resolved environment variables for a specified app (after alias resolution and overrides).
+**Purpose**: Export resolved environment variables or portable Enva bundles.
 
 **Signature**:
 
-```
-secrets export --app NAME [--vault PATH] [--format FORMAT]
+```bash
+enva vault export [--app NAME] [--vault PATH] [--format FORMAT]
 ```
 
 | Parameter/Option | Type | Required | Default | Description |
 |------------------|------|----------|---------|-------------|
-| `--app` | `str` | Yes | — | Application name |
-| `--vault` | `click.Path` | No | Global default | Vault file path |
-| `--format` | `click.Choice(["env", "json"])` | No | `env` | Output format |
+| `--app` | `str` | No | `None` | Application name. Omit to export the full secret pool. |
+| `--vault` | `path` | No | Global default | Vault file path |
+| `--format` | `string` (`env` \| `json` \| `enva-json` \| `yaml`) | No | `env` | Output format |
 
 **stdout** (`--format env`):
 
-```
-export API_KEY='sk-abc123'
-export DATABASE_URL='postgres://user:pass@host:5432/db'
-export REDIS_URL='redis://localhost:6379/0'
+```bash
+export API_KEY=sk-abc123
+export DATABASE_URL=postgres://user:pass@host:5432/db
+export REDIS_URL=redis://localhost:6379/0
 ```
 
-Format rules: values are wrapped in single quotes; internal single quotes are escaped as `'\''`.
+This remains the shell-oriented export form and keeps the `export ` prefix.
 
 **stdout** (`--format json`):
 
@@ -514,38 +514,72 @@ Format rules: values are wrapped in single quotes; internal single quotes are es
 }
 ```
 
+**stdout** (`--format enva-json`):
+
+```json
+{
+  "schema": "enva-bundle",
+  "version": 1,
+  "secrets": [
+    {
+      "alias": "database-url",
+      "key": "DATABASE_URL",
+      "value": "postgres://user:pass@host:5432/db",
+      "description": "",
+      "tags": []
+    }
+  ],
+  "apps": [
+    {
+      "name": "backend",
+      "description": "",
+      "app_path": "",
+      "bindings": [
+        {
+          "alias": "database-url",
+          "injected_as": "DATABASE_URL"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`--format yaml` exports the same portable bundle schema as YAML.
+
 **Examples**:
 
 ```bash
 # Inject into the current shell via eval
-eval "$(secrets export --app backend --vault ./vault.json)"
+eval "$(enva vault export --app backend --vault ./vault.json)"
 
 # Export JSON for programmatic consumption
-secrets export --app backend --vault ./vault.json --format json > /tmp/secrets.json
+enva vault export --app backend --vault ./vault.json --format json > /tmp/secrets.json
 
 # Pipe to Docker
-secrets export --app backend --vault ./vault.json --format env | xargs docker run --env
+enva vault export --app backend --vault ./vault.json --format yaml > /tmp/backend.bundle.yaml
 ```
 
 ---
 
-#### 1.4.8 `secrets import`
+#### 1.4.8 `enva vault import`
 
-**Purpose**: Import key-value pairs from a `.env` file into the secrets pool, auto-generating aliases from key names (e.g. `DATABASE_URL` → `database-url`). Imported secrets are also assigned to the specified app.
+**Purpose**: Import flat `.env` / `json` files or portable Enva bundles into the vault.
 
 **Signature**:
 
-```
-secrets import --from FILE --app NAME [--vault PATH]
+```bash
+enva vault import --from FILE [--format FORMAT] [--app NAME] [--vault PATH]
 ```
 
 | Parameter/Option | Type | Required | Default | Description |
 |------------------|------|----------|---------|-------------|
-| `--from` | `click.Path(exists=True)` | Yes | — | Source `.env` file path. Format: one `KEY=VALUE` per line; supports `#` comments, blank lines, and quoted values. |
-| `--app` | `str` | Yes | — | Target application to assign imported secrets to |
-| `--vault` | `click.Path` | No | Global default | Vault file path |
+| `--from` | `path` | Yes | — | Source file path |
+| `--format` | `string` (`env` \| `json` \| `enva-json` \| `yaml`) | No | inferred from file extension / payload shape | Import format |
+| `--app` | `str` | No | `None` | Target application for flat `.env` / flat `json` imports. Bundle imports preserve embedded app bindings and reject `--app`. |
+| `--vault` | `path` | No | Global default | Vault file path |
 
-**`.env` parsing rules**:
+**Flat `.env` parsing rules**:
 - Blank lines and lines starting with `#` are ignored
 - `KEY=VALUE` — trim whitespace from both ends of VALUE
 - `KEY="VALUE"` — strip double quotes, handle `\n`/`\t`/`\\`/`\"` escape sequences
@@ -553,20 +587,23 @@ secrets import --from FILE --app NAME [--vault PATH]
 - `export KEY=VALUE` — ignore the `export ` prefix
 - Duplicate keys: the last occurrence wins
 
-**stdout**: None
+**Additional format rules**:
+- `json` expects a flat object of string values, e.g. `{ "DATABASE_URL": "..." }`
+- `enva-json` and `yaml` use the portable bundle schema with `schema`, `version`, `secrets[]`, and `apps[]`
+- `import-env` remains available as a compatibility alias for `.env`-oriented scripts
 
-**stderr** (normal):
+**stdout** (normal):
 
 ```
-✓ Imported 5 secrets into pool and assigned to app "backend" from .env.production
-  New aliases: database-url, redis-url, jwt-secret
-  Updated aliases: api-key, sentry-dsn
+Imported 5 secrets into app 'backend' from env
 ```
 
 **Examples**:
 
 ```bash
-secrets import --from .env.production --app backend --vault ./vault.json
+enva vault import --from .env.production --app backend --vault ./vault.json
+enva vault import --from ./flat-secrets.json --format json --vault ./vault.json
+enva vault import --from ./backend.bundle.yaml --vault ./vault.json
 ```
 
 ---
@@ -698,7 +735,7 @@ All commands involving sensitive information are automatically prefixed with a s
 ```bash
 __secrets_inject() {
     # Leading space prevents bash from recording the command in history
-     eval "$( secrets export --app "$app" --vault "$vault" --quiet)"
+     eval "$( enva vault export --app "$app" --vault "$vault" --quiet)"
 }
 ```
 
@@ -1273,33 +1310,37 @@ Content-Type: multipart/form-data
 
 | Form Field | Type | Required | Default | Description |
 |------------|------|----------|---------|-------------|
-| `file` | `UploadFile` | Yes | — | A `.env` format file |
-| `app` | `string` | No | `None` (global scope) | Target app name |
+| `file` | `UploadFile` | Yes | — | `.env`, flat `json`, portable `enva-json`, or `yaml` bundle |
+| `format` | `string` (`env` \| `json` \| `enva-json` \| `yaml` \| `auto`) | No | inferred / `auto` | Explicit import format |
+| `app` | `string` | No | `None` (global scope) | Target app name for flat `.env` / flat `json` imports. Bundle imports preserve embedded app bindings and reject this field. |
 
 **Success response** (`200 OK`):
 
 ```json
 {
-  "imported": 5,
-  "details": {
-    "new": ["DATABASE_URL", "REDIS_URL", "JWT_SECRET"],
-    "updated": ["API_KEY", "SENTRY_DSN"]
+  "status": "imported",
+  "summary": {
+    "format": "yaml",
+    "imported_secrets": 5,
+    "imported_apps": 1,
+    "assigned_bindings": 5
   }
 }
 ```
 
 | Response Field | Type | Description |
 |----------------|------|-------------|
-| `imported` | `integer` | Total number of keys imported |
-| `details.new` | `array[string]` | List of newly added key names |
-| `details.updated` | `array[string]` | List of updated key names |
+| `status` | `string` | Always `"imported"` on success |
+| `summary.format` | `string` | Effective import format |
+| `summary.imported_secrets` | `integer` | Total number of imported secrets |
+| `summary.imported_apps` | `integer` | Number of imported bundle apps |
+| `summary.assigned_bindings` | `integer` | Number of app bindings assigned during import |
 
-**Empty file or no valid keys** (`422 Unprocessable Entity`):
+**Unsupported format or invalid payload** (`400 Bad Request`):
 
 ```json
 {
-  "error": "validation_error",
-  "message": "No valid key-value pairs found in uploaded file"
+  "error": "unsupported format 'toml'. Supported formats: env, json, enva-json, yaml, yml"
 }
 ```
 
@@ -1317,7 +1358,7 @@ Authorization: Bearer <token>
 | Query Parameter | Type | Required | Default | Description |
 |-----------------|------|----------|---------|-------------|
 | `app` | `string` | No | `None` (global scope) | Application name |
-| `format` | `string` (`env` \| `json`) | No | `env` | Export format |
+| `format` | `string` (`env` \| `json` \| `enva-json` \| `yaml`) | No | `env` | Export format |
 
 **Success response** (`format=env`, `200 OK`, `Content-Type: text/plain`):
 
@@ -1338,6 +1379,19 @@ Note: The Web API env export does **not** include the `export ` prefix (unlike t
   "JWT_SECRET": "super-secret-jwt-key"
 }
 ```
+
+**Success response** (`format=enva-json`, `200 OK`, `Content-Type: application/json`):
+
+```json
+{
+  "schema": "enva-bundle",
+  "version": 1,
+  "secrets": [],
+  "apps": []
+}
+```
+
+`format=yaml` returns the same portable bundle schema serialized as YAML.
 
 ---
 
@@ -1490,8 +1544,8 @@ The web management interface is a static SPA (Single-Page Application) served di
 | `assign` | `ALIAS`, `--app` | `--as`, `--vault` | 0, 1, 2, 3 |
 | `unassign` | `ALIAS`, `--app` | `--vault` | 0, 1, 2, 3 |
 | `run` | `COMMAND [ARGS]`, `--app` | `--vault` | 0, 1, 2, subprocess exit code |
-| `export` | `--app` | `--vault`, `--format` | 0, 1, 2 |
-| `import` | `--from FILE`, `--app` | `--vault` | 0, 1, 2 |
+| `export` | — | `--app`, `--vault`, `--format` | 0, 1, 2 |
+| `import` | `--from FILE` | `--app`, `--format`, `--vault` | 0, 1, 2 |
 | `serve` | — | `--port`, `--host`, `--vault` | 0, 1 |
 | `self-test` | — | — | 0, 1 |
 

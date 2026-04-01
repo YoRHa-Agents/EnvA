@@ -173,9 +173,15 @@ enva edit <ALIAS> [--key <NEW_KEY>] [--value <NEW_VALUE>] [--description <DESC>]
 enva run --app backend --vault vault.json -- ./my-server
 ```
 
-### `enva export` / `enva import-env`
+### `enva vault export` / `enva vault import`
 
 导出/导入密钥。
+
+```bash
+enva vault export --app backend --vault vault.json --format json
+enva vault import --from .env.production --app backend --vault vault.json
+enva vault import --from bundle.yaml --vault vault.json
+```
 
 ### `enva serve`
 
