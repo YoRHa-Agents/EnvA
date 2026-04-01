@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-04-01
+
+### Fixed
+
+- **Remote action modal alignment**: Fixed the remote deploy/sync option checkboxes so labels align correctly in the embedded web UI instead of being pushed to the far edge of the modal.
+- **Inline remote validation**: Added an in-modal remote action error area so host/path/password validation stays visually aligned with the remote action form.
+
 ## [0.6.0] - 2026-04-01
 
 ### Added
@@ -140,7 +147,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.1
 [0.6.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.0
 [0.5.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.5.0
 [0.4.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.4.0

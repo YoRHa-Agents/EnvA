@@ -225,6 +225,24 @@ code, .mono { font-family:'Share Tech Mono',monospace; }
   margin-top:8px; display:flex; flex-direction:column; gap:4px;
   font-size:12px; color:var(--text-muted);
 }
+.modal-inline-checkbox {
+  display:flex; align-items:flex-start; gap:8px; margin-top:8px;
+  font-size:12px; color:var(--text-muted);
+}
+.modal-inline-checkbox input[type="checkbox"] {
+  width:auto; margin:2px 0 0; flex:0 0 auto;
+  accent-color:var(--accent); cursor:pointer;
+}
+.remote-option-list { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.remote-option {
+  display:flex; align-items:flex-start; gap:10px; padding:10px 12px;
+  background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius);
+  cursor:pointer; transition:all var(--transition);
+}
+.remote-option:hover { border-color:var(--text-secondary); }
+.remote-option-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.remote-option-title { font-size:12px; font-weight:500; color:var(--text-primary); }
+.remote-option-description { font-size:12px; color:var(--text-muted); line-height:1.4; }
 .remote-actions { display:flex; gap:8px; }
 .remote-actions .btn { flex:1; }
 
@@ -338,6 +356,10 @@ code, .mono { font-family:'Share Tech Mono',monospace; }
 .field-hint { font-size:11px; color:var(--text-muted); margin-top:4px; }
 .field-error { font-size:11px; color:var(--danger); margin-top:4px; display:none; }
 .field-error.show { display:block; }
+.field-error.status-message {
+  margin-top:12px; padding:10px 12px; border:1px solid rgba(239,68,68,0.22);
+  border-radius:var(--radius); background:var(--danger-bg); line-height:1.4;
+}
 .checkbox-grid {
   display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:8px;
 }
@@ -865,7 +887,7 @@ body::after {
       <div class="field-group">
         <label data-i18n="appPath">App Path (executable to launch)</label>
         <input type="text" id="newAppPath" placeholder="e.g. python app.py, ./start.sh, node server.js">
-        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--text-muted);">
+        <label class="modal-inline-checkbox">
           <input type="checkbox" id="newAppPathAbsolute">
           <span data-i18n="absolutePath">Use absolute path</span>
         </label>
@@ -894,7 +916,7 @@ body::after {
       <div class="field-group">
         <label data-i18n="vaultPath">Vault Path</label>
         <input type="text" id="settingsVaultPath" class="mono" placeholder="~/.enva/vault.json">
-        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--text-muted);">
+        <label class="modal-inline-checkbox">
           <input type="checkbox" id="settingsVaultPathAbsolute">
           <span data-i18n="absolutePath">Use absolute path</span>
         </label>
@@ -976,14 +998,23 @@ body::after {
         <label>Remote password</label>
         <input type="password" id="remotePassword" placeholder="Used to decrypt previewed remote vault">
       </div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);">
-        <input type="checkbox" id="remoteOverwrite">
-        <span>Allow overwrite for deploy or sync-from</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);margin-top:8px;">
-        <input type="checkbox" id="remoteIncludeBindings" checked>
-        <span>Include bindings when syncing or deploying selected apps</span>
-      </label>
+      <div class="remote-option-list">
+        <label class="remote-option">
+          <input type="checkbox" id="remoteOverwrite">
+          <span class="remote-option-copy">
+            <span class="remote-option-title">Allow overwrite</span>
+            <span class="remote-option-description">Use for deploy or sync-from when the destination already exists.</span>
+          </span>
+        </label>
+        <label class="remote-option">
+          <input type="checkbox" id="remoteIncludeBindings" checked>
+          <span class="remote-option-copy">
+            <span class="remote-option-title">Include bindings</span>
+            <span class="remote-option-description">Include secret bindings when syncing or deploying selected apps.</span>
+          </span>
+        </label>
+      </div>
+      <div class="field-error status-message" id="remoteActionError"></div>
       <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Remote Preview</div>
         <div class="field-hint" id="remotePreviewEmpty" style="display:block;margin-bottom:8px;">Preview the remote vault to choose secrets and apps for selective sync or deploy.</div>
@@ -1667,6 +1698,13 @@ function resetRemotePreview() {
   }
 }
 
+function setRemoteActionError(message = '') {
+  const errEl = document.getElementById('remoteActionError');
+  if (!errEl) return;
+  errEl.textContent = message;
+  errEl.classList.toggle('show', !!message);
+}
+
 function setUpdateStatus(message, isError = false) {
   const el = document.getElementById('updateStatus');
   if (!el) return;
@@ -1823,6 +1861,7 @@ async function loadRemoteHosts(force = false) {
 
 function resetRemoteHostForm() {
   editingRemoteHostAlias = null;
+  setRemoteActionError('');
   document.getElementById('remoteHostAlias').value = '';
   document.getElementById('remoteHostName').value = '';
   document.getElementById('remoteHostUser').value = '';
@@ -1837,6 +1876,7 @@ function startEditRemoteHost(alias) {
     toast('Only web-managed hosts can be edited.', 'error');
     return;
   }
+  setRemoteActionError('');
   editingRemoteHostAlias = alias;
   selectedRemoteHost = alias;
   document.getElementById('remoteHostAlias').value = host.alias || '';
@@ -1849,6 +1889,7 @@ function startEditRemoteHost(alias) {
 }
 
 async function saveRemoteHost() {
+  setRemoteActionError('');
   const wasEditing = !!editingRemoteHostAlias;
   const payload = {
     alias: document.getElementById('remoteHostAlias').value.trim(),
@@ -1858,7 +1899,7 @@ async function saveRemoteHost() {
     identity_file: document.getElementById('remoteHostIdentityFile').value.trim() || null
   };
   if (!payload.alias || !payload.hostname || !payload.user) {
-    toast('Alias, hostname, and user are required.', 'error');
+    setRemoteActionError('Alias, hostname, and user are required.');
     return;
   }
 
@@ -1876,7 +1917,7 @@ async function saveRemoteHost() {
     await loadRemoteHosts(false);
     toast(wasEditing ? `SSH host "${payload.alias}" updated.` : `SSH host "${payload.alias}" added.`);
   } catch (err) {
-    toast(err.message, 'error');
+    setRemoteActionError(err.message);
   }
 }
 
@@ -1904,6 +1945,7 @@ async function openRemoteModal() {
   document.getElementById('remotePassword').value = '';
   document.getElementById('remoteOverwrite').checked = false;
   document.getElementById('remoteIncludeBindings').checked = true;
+  setRemoteActionError('');
   resetRemoteHostForm();
   resetRemotePreview();
   try {
@@ -1924,18 +1966,19 @@ async function refreshRemoteHosts() {
 }
 
 async function previewRemoteVault() {
+  setRemoteActionError('');
   if (!selectedRemoteHost || !SSH_HOSTS[selectedRemoteHost]) {
-    toast('Select an SSH host first.', 'error');
+    setRemoteActionError('Select an SSH host first.');
     return;
   }
   const remotePath = document.getElementById('remotePath').value.trim();
   const remotePassword = document.getElementById('remotePassword').value;
   if (!remotePath) {
-    toast('Remote vault path is required.', 'error');
+    setRemoteActionError('Remote vault path is required.');
     return;
   }
   if (!remotePassword) {
-    toast('Remote password is required for preview.', 'error');
+    setRemoteActionError('Remote password is required for preview.');
     return;
   }
 
@@ -1957,22 +2000,23 @@ async function previewRemoteVault() {
     renderRemotePreview();
     toast(`Loaded remote preview from ${selectedRemoteHost}.`);
   } catch (err) {
-    toast(err.message, 'error');
+    setRemoteActionError(err.message);
   }
 }
 
 async function submitSelectiveRemoteAction(mode) {
+  setRemoteActionError('');
   if (!remotePreviewData) {
-    toast('Preview the remote vault first.', 'error');
+    setRemoteActionError('Preview the remote vault first.');
     return;
   }
   const payload = currentRemoteSelectionPayload();
   if (!payload.host_alias || !payload.remote_path) {
-    toast('Select a host and remote path first.', 'error');
+    setRemoteActionError('Select a host and remote path first.');
     return;
   }
   if (payload.selected_secrets.length === 0 && payload.selected_apps.length === 0) {
-    toast('Select at least one secret or application.', 'error');
+    setRemoteActionError('Select at least one secret or application.');
     return;
   }
 
@@ -1990,19 +2034,20 @@ async function submitSelectiveRemoteAction(mode) {
       toast(`Selected items synced from ${payload.host_alias}.`);
     }
   } catch (err) {
-    toast(err.message, 'error');
+    setRemoteActionError(err.message);
   }
 }
 
 async function submitRemoteAction(mode) {
+  setRemoteActionError('');
   if (!selectedRemoteHost || !SSH_HOSTS[selectedRemoteHost]) {
-    toast('Select an SSH host first.', 'error');
+    setRemoteActionError('Select an SSH host first.');
     return;
   }
 
   const remotePath = document.getElementById('remotePath').value.trim();
   if (!remotePath) {
-    toast('Remote vault path is required.', 'error');
+    setRemoteActionError('Remote vault path is required.');
     return;
   }
 
@@ -2060,7 +2105,7 @@ async function executeRemoteAction(mode) {
       toast(`Vault synced from ${hostAlias}.`);
     }
   } catch (err) {
-    toast(err.message, 'error');
+    setRemoteActionError(err.message);
   }
 }
 
@@ -2077,13 +2122,14 @@ let mergeHostAlias = null;
 let mergeRemotePath = null;
 
 async function startMergePreview() {
+  setRemoteActionError('');
   if (!selectedRemoteHost || !SSH_HOSTS[selectedRemoteHost]) {
-    toast('Select an SSH host first.', 'error');
+    setRemoteActionError('Select an SSH host first.');
     return;
   }
   const remotePath = document.getElementById('remotePath').value.trim();
   if (!remotePath) {
-    toast('Remote vault path is required.', 'error');
+    setRemoteActionError('Remote vault path is required.');
     return;
   }
   mergeHostAlias = selectedRemoteHost;
@@ -2101,7 +2147,7 @@ async function startMergePreview() {
     closeModal('remoteModal');
     openModal('mergeModal');
   } catch (err) {
-    toast(err.message, 'error');
+    setRemoteActionError(err.message);
   }
 }
 

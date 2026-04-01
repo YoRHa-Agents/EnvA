@@ -28,6 +28,20 @@ fn embedded_ui_contains_selection_controls_for_import_and_export() {
 }
 
 #[test]
+fn embedded_ui_contains_remote_action_layout_hooks() {
+    let html = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("web")
+            .join("index.html"),
+    )
+    .unwrap();
+
+    assert!(html.contains("class=\"remote-option-list\""));
+    assert!(html.contains("class=\"remote-option-copy\""));
+    assert!(html.contains("id=\"remoteActionError\""));
+}
+
+#[test]
 fn demo_page_contains_matching_selection_controls() {
     let html = fs::read_to_string(repo_root().join("site").join("demo.html")).unwrap();
 
