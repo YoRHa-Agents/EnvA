@@ -1248,6 +1248,53 @@ fn update_downloads_requested_release_into_override_binary_path() {
 }
 
 #[test]
+fn update_downloads_release_without_digest_when_size_matches() {
+    let Some(asset_name) = current_platform_asset() else {
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let binary_path = tmp.path().join("enva");
+    write_test_binary(&binary_path);
+
+    let mut server = Server::new();
+    let downloaded = b"digest-optional-binary";
+    let asset_path = format!("/downloads/{asset_name}");
+    let release_body = serde_json::json!({
+        "tag_name": "v0.6.2",
+        "html_url": format!("{}/releases/v0.6.2", server.url()),
+        "assets": [{
+            "name": asset_name,
+            "browser_download_url": format!("{}{}", server.url(), asset_path),
+            "size": downloaded.len()
+        }]
+    });
+
+    let _release = server
+        .mock("GET", "/repos/YoRHa-Agents/EnvA/releases/tags/v0.6.2")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(release_body.to_string())
+        .create();
+    let _asset = server
+        .mock("GET", asset_path.as_str())
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_body(downloaded.to_vec())
+        .create();
+
+    enva_cmd()
+        .args(["update", "--version", "v0.6.2"])
+        .env("ENVA_UPDATE_API_BASE", server.url())
+        .env("ENVA_UPDATE_BIN_PATH", &binary_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated enva to v0.6.2"));
+
+    assert_eq!(fs::read(&binary_path).unwrap(), downloaded);
+}
+
+#[test]
 fn update_reports_already_up_to_date_for_latest_release() {
     let Some(asset_name) = current_platform_asset() else {
         return;

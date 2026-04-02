@@ -1,37 +1,25 @@
-<p align="center">
-  <img src="docs/assets/branding/banner.svg" alt="Enva banner" width="720">
-</p>
+# Enva
 
-<p align="center">
-  <a href="https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.1"><img src="https://img.shields.io/github/v/release/YoRHa-Agents/EnvA?label=release&color=c4a35a" alt="Latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-v0.6.1-8b7355" alt="Changelog"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-e8e6e3" alt="MIT license"></a>
-  <a href="https://yorha-agents.github.io/EnvA/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-c4a35a" alt="Documentation"></a>
-</p>
+Encrypted environment variable manager with a local-first vault, app-aware
+injection, an embedded web UI, and a parity-checked GitHub Pages demo.
 
-<p align="center">
-  <a href="#-system-capabilities">Features</a>
-  ·
-  <a href="#-demo">Demo</a>
-  ·
-  <a href="#-deployment-protocol">Installation</a>
-  ·
-  <a href="#-operational-guide">Quick Start</a>
-  ·
-  <a href="https://yorha-agents.github.io/EnvA/">Documentation</a>
-  ·
-  <a href="https://yorha-agents.github.io/EnvA/demo.html">Live Demo</a>
-</p>
+Front door:
+- [Live demo](https://yorha-agents.github.io/EnvA/demo.html)
+- [Pages landing](https://yorha-agents.github.io/EnvA/)
+- [Docs index](docs/README.md)
+- [Agent index](docs/agent-index.md)
+- [Common alignment](docs/design/en/common_alignment.md)
+- [Migration adoption](docs/design/en/migration_adoption.md)
 
 ---
 
-> **Pod 042 — Status Report:** Enva stores secrets in a local AES-256-GCM encrypted vault,
+> Enva stores secrets in a local AES-256-GCM encrypted vault,
 > derives keys with Argon2id, verifies integrity with HMAC-SHA256, and injects resolved values
 > into the exact application process that needs them. Designed for operators who prefer a
 > local-first workflow, strong crypto defaults, a fast CLI, and a clean web UI over passing
 > `.env` files by hand.
 
-## 「 System Capabilities 」
+## Features
 
 - **Encrypted Vault** — AES-256-GCM at rest, Argon2id key derivation, HMAC-SHA256 integrity
   checks on every load.
@@ -40,35 +28,27 @@
 - **Built-in Web UI** — Browse, edit, rename, assign, import, and export secrets through an
   embedded web interface. No external dependencies.
 - **Self-Update** — `enva update` fetches the latest compatible binary from GitHub Releases,
-  verifies its SHA256 digest, and atomically replaces the installed executable.
+  verifies download size plus any SHA256 digest shipped in release metadata, and atomically
+  replaces the installed executable.
 - **SSH Remote Sync** — Read `~/.ssh/config`, preview remote vault contents, and run selective
   deploy/sync operations from the web UI.
 - **Cross-Platform** — Pre-built binaries for Linux x86_64, Linux aarch64, and macOS Apple
   Silicon. Single static binary, zero runtime dependencies.
 
-## 「 Demo 」
+## Demo
 
 **[Try the interactive demo →](https://yorha-agents.github.io/EnvA/demo.html)**
 
 Experience the full vault workflow in your browser — unlock, browse secrets, edit, assign to
 apps, import/export — all running client-side with no backend required.
 
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/screenshots/demo-login.svg" alt="Enva demo login" width="100%">
-      <br>
-      <sub>Vault unlock screen — enter any password to access the simulation.</sub>
-    </td>
-    <td width="50%">
-      <img src="docs/assets/screenshots/demo-secrets.svg" alt="Enva demo secrets" width="100%">
-      <br>
-      <sub>Secrets overview — browse aliases, keys, tags, and app assignments.</sub>
-    </td>
-  </tr>
-</table>
+The demo now uses the same neutral shell language as `RustWebAppCommon` while
+keeping Enva's product-specific flows and parity hooks:
+- vault browse, edit, assign, import, and export
+- CLI simulation snippets and review-friendly status panels
+- the same import/export selection hooks guarded by `static_pages.rs`
 
-## 「 Supported Platforms 」
+## Supported Platforms
 
 | Platform | Architecture | Binary Name |
 |----------|-------------|-------------|
@@ -76,7 +56,7 @@ apps, import/export — all running client-side with no backend required.
 | Linux | aarch64 | `enva-linux-aarch64` |
 | macOS | Apple Silicon | `enva-macos-aarch64` |
 
-## 「 Deployment Protocol 」
+## Installation
 
 ### Option A: Install Script (recommended)
 
@@ -114,7 +94,7 @@ enva vault self-test
 enva update --help
 ```
 
-## 「 Operational Guide 」
+## Quick Start
 
 ```bash
 # 1. Create a vault
@@ -206,7 +186,7 @@ enva vault self-test
 
 `json` keeps the existing resolved key/value export. `enva-json` and `yaml` export portable Enva bundles that can be re-imported with `enva vault import`. `enva vault import-env` remains available as a compatibility alias for `.env`-style workflows.
 
-## 「 Configuration 」
+## Configuration
 
 ### Global Config (`~/.enva/config.yaml`)
 
@@ -226,14 +206,14 @@ See [`config/enva.project.example.yaml`](config/enva.project.example.yaml).
 | `ENVA_CONFIG` | Override config file path |
 | `ENVA_APP` | Override default app name |
 
-## 「 Architecture 」
+## Architecture
 
 | Crate | Description |
 |-------|-------------|
 | `enva-core` | Core library: AES-256-GCM, HKDF, Argon2id KDF, HMAC-SHA256, vault crypto, secret types, resolution |
 | `enva` | CLI binary (clap) plus embedded Axum web UI |
 
-## 「 Development 」
+## Development
 
 ```bash
 cargo test --workspace
@@ -244,20 +224,18 @@ cargo clippy --workspace -- -D warnings
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
-## 「 Documentation 」
+## Documentation
 
 - **[GitHub Pages](https://yorha-agents.github.io/EnvA/)** — Project site with interactive demo
 - **[docs/](docs/)** — Design docs, API specs, vault format, deployment guides
 - **[docs/agent-index.md](docs/agent-index.md)** — Structured command reference for LLM consumption
+- **[docs/design/en/common_alignment.md](docs/design/en/common_alignment.md)** — Common-base reimplementation map against `RustWebAppCommon`
+- **[docs/design/en/migration_adoption.md](docs/design/en/migration_adoption.md)** — Tracked Enva adoption guide for common-side validation seams
 
-Last updated: `2026-03-31`
+Last updated: `2026-04-02`
 
-## 「 License 」
+## License
 
 MIT
 
 ---
-
-<p align="center">
-  <i>Glory to Mankind.</i>
-</p>

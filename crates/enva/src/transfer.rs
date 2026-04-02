@@ -594,11 +594,9 @@ fn alias_from_key(key: &str) -> Result<String, TransferError> {
             previous_separator = false;
             continue;
         }
-        if ch == '_' || ch == '-' || !ch.is_ascii() {
-            if !alias.is_empty() && !previous_separator {
-                alias.push('-');
-                previous_separator = true;
-            }
+        if (ch == '_' || ch == '-' || !ch.is_ascii()) && !alias.is_empty() && !previous_separator {
+            alias.push('-');
+            previous_separator = true;
         }
     }
     while alias.ends_with('-') {

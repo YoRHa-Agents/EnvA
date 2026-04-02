@@ -3,202 +3,190 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Enva — YoRHa Env[A]rmament Unit</title>
-<meta name="description" content="Encrypted environment variable manager with AES-256-GCM vault, Argon2id key derivation, app-aware injection, and a built-in web UI.">
+<title>Enva</title>
+<meta name="description" content="Encrypted environment variable workflows with a local-first vault, app-aware injection, an embedded web UI, and a parity-checked Pages demo.">
 <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
 <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
-
-<div class="scanline-overlay"></div>
-
-<nav class="nav">
-  <a href="#" class="nav-logo">
-    <span class="gold">◇</span> Env<span class="gold">A</span>
-  </a>
-  <ul class="nav-links">
-    <li><a href="#features">Features</a></li>
-    <li><a href="#install">Install</a></li>
-    <li><a href="#quickstart">Usage</a></li>
-    <li><a href="demo.html">Demo</a></li>
-    <li><a href="https://github.com/YoRHa-Agents/EnvA">GitHub</a></li>
-  </ul>
-</nav>
-
-<section class="hero">
-  <div class="hero-bg"><canvas id="heroCanvas"></canvas></div>
-  <div class="hero-content">
-    <div class="hero-badge">
-      <span class="diamond"></span>
-      YORHA ENV[A]RMAMENT SYSTEM
-      <span class="diamond"></span>
-    </div>
-    <h1>Env<span class="gold">A</span></h1>
-    <p class="hero-sub">
-      Encrypted environment variable manager. AES-256-GCM vault, Argon2id key derivation,
-      app-aware secret injection, and a built-in web UI.
+<body class="page-landing">
+<div class="shell">
+  <header class="masthead" id="overview">
+    <p class="eyebrow">01 / Enva</p>
+    <h1>Encrypted environment variable workflows without passing `.env` files around.</h1>
+    <p class="lede">
+      Enva keeps secrets in a local AES-256-GCM vault, injects only the values an app needs,
+      and exposes the same workflow through a CLI, an embedded web UI, and a GitHub Pages demo.
     </p>
     <div class="hero-actions">
-      <a href="#install" class="btn btn-primary">Install Enva</a>
-      <a href="demo.html" class="btn">Try the Demo</a>
+      <a class="button-link" href="demo.html">Open Interactive Demo</a>
+      <a class="button-link" href="https://github.com/YoRHa-Agents/EnvA">View Source</a>
+      <a class="button-link" href="https://github.com/YoRHa-Agents/EnvA/releases">Browse Releases</a>
     </div>
-  </div>
-</section>
+  </header>
 
-<section class="section" id="features">
-  <div class="section-divider fade-in">
-    <span class="diamond"></span>
-    <span class="line"></span>
-    <span class="section-label">「 System Capabilities 」</span>
-    <span class="line"></span>
-    <span class="diamond"></span>
-  </div>
+  <nav class="topnav" aria-label="Enva site sections">
+    <a class="active" href="#overview">Overview</a>
+    <a href="#features">Features</a>
+    <a href="#install">Install</a>
+    <a href="#quickstart">Quick Start</a>
+    <a href="demo.html">Demo</a>
+    <a href="https://github.com/YoRHa-Agents/EnvA">GitHub</a>
+  </nav>
 
-  <h2 class="section-title fade-in"><span class="bracket">「</span> Features <span class="bracket">」</span></h2>
-
-  <div class="features-grid">
-    <div class="feature-card fade-in">
-      <div class="feature-icon">◈</div>
-      <h3>AES-256-GCM Vault</h3>
-      <p>Secrets are encrypted at rest with AES-256-GCM. Key derivation uses Argon2id with tunable parameters. HMAC-SHA256 verifies vault integrity on every load.</p>
-    </div>
-    <div class="feature-card fade-in">
-      <div class="feature-icon">◈</div>
-      <h3>App-Aware Injection</h3>
-      <p>Assign secrets to specific applications. Each app receives only its designated environment variables at runtime via process-level injection.</p>
-    </div>
-    <div class="feature-card fade-in">
-      <div class="feature-icon">◈</div>
-      <h3>Built-in Web UI</h3>
-      <p>Browse, edit, rename, assign, import, and export secrets through a clean embedded web interface. No external dependencies required.</p>
-    </div>
-    <div class="feature-card fade-in">
-      <div class="feature-icon">◈</div>
-      <h3>SSH Remote Sync</h3>
-      <p>Read SSH config hosts, preview remote vault contents, and run selective deploy or sync operations without leaving the web UI.</p>
-    </div>
-    <div class="feature-card fade-in">
-      <div class="feature-icon">◈</div>
-      <h3>Self-Update</h3>
-      <p>Built-in updater fetches the latest release from GitHub, verifies SHA256 digest, and atomically replaces the running binary in place.</p>
-    </div>
-    <div class="feature-card fade-in">
-      <div class="feature-icon">◈</div>
-      <h3>Cross-Platform</h3>
-      <p>Pre-built binaries for Linux x86_64, Linux aarch64, and macOS Apple Silicon. Single static binary with zero runtime dependencies.</p>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="install">
-  <div class="section-divider fade-in">
-    <span class="diamond"></span>
-    <span class="line"></span>
-    <span class="section-label">「 Deployment Protocol 」</span>
-    <span class="line"></span>
-    <span class="diamond"></span>
-  </div>
-
-  <h2 class="section-title fade-in"><span class="bracket">「</span> Installation <span class="bracket">」</span></h2>
-
-  <div class="fade-in">
-    <div class="install-tabs">
-      <button class="install-tab active" data-tab="script">Install Script</button>
-      <button class="install-tab" data-tab="source">Build from Source</button>
-      <button class="install-tab" data-tab="verify">Verify</button>
-    </div>
-
-    <div class="install-content active" data-content="script">
-      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
-      <pre><code>curl -fsSL https://raw.githubusercontent.com/YoRHa-Agents/EnvA/main/scripts/install.sh | bash</code></pre>
-    </div>
-
-    <div class="install-content" data-content="source">
-      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
-      <pre><code>git clone https://github.com/YoRHa-Agents/EnvA.git && cd EnvA
-cargo build --release
-sudo cp target/release/enva /usr/local/bin/</code></pre>
-    </div>
-
-    <div class="install-content" data-content="verify">
-      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
-      <pre><code>enva vault self-test
-enva update --help</code></pre>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="quickstart">
-  <div class="section-divider fade-in">
-    <span class="diamond"></span>
-    <span class="line"></span>
-    <span class="section-label">「 Operational Guide 」</span>
-    <span class="line"></span>
-    <span class="diamond"></span>
-  </div>
-
-  <h2 class="section-title fade-in"><span class="bracket">「</span> Quick Start <span class="bracket">」</span></h2>
-
-  <div class="quickstart-steps">
-    <div class="qs-step fade-in">
-      <div class="qs-num">1</div>
-      <div>
-        <h4>Initialize a Vault</h4>
-        <p>Create an encrypted vault file to store your secrets.</p>
-        <code>enva vault init --vault ./my.vault.json</code>
+  <main class="content">
+    <section class="status-strip" aria-label="Enva summary">
+      <div class="status-card">
+        <span class="status-label">Primary surface</span>
+        <span class="status-value">CLI + Embedded Web UI</span>
       </div>
-    </div>
-    <div class="qs-step fade-in">
-      <div class="qs-num">2</div>
-      <div>
-        <h4>Store a Secret</h4>
-        <p>Add a secret with an alias, key name, and value.</p>
-        <code>enva vault set db-url -k DATABASE_URL -V "postgres://user:pass@host/db"</code>
+      <div class="status-card">
+        <span class="status-label">Default bind</span>
+        <span class="status-value">127.0.0.1:8080</span>
       </div>
-    </div>
-    <div class="qs-step fade-in">
-      <div class="qs-num">3</div>
-      <div>
-        <h4>Assign to an App</h4>
-        <p>Bind the secret to a specific application context.</p>
-        <code>enva vault assign db-url --app backend</code>
+      <div class="status-card">
+        <span class="status-label">Release assets</span>
+        <span class="status-value">linux x86_64 / aarch64 / macOS aarch64</span>
       </div>
-    </div>
-    <div class="qs-step fade-in">
-      <div class="qs-num">4</div>
-      <div>
-        <h4>Inject and Run</h4>
-        <p>Launch your application with secrets injected as environment variables.</p>
-        <code>enva backend -- printenv DATABASE_URL</code>
+      <div class="status-card">
+        <span class="status-label">Shared guardrail</span>
+        <span class="status-value">Embedded UI and Pages demo stay in parity</span>
       </div>
-    </div>
-    <div class="qs-step fade-in">
-      <div class="qs-num">5</div>
-      <div>
-        <h4>Web UI</h4>
-        <p>Open the built-in web interface for visual management.</p>
-        <code>enva serve --port 3000</code>
-      </div>
-    </div>
-  </div>
-</section>
+    </section>
 
-<footer class="footer">
-  <div class="footer-diamond">
-    <span class="line"></span>
-    <span class="diamond"></span>
-    <span class="line"></span>
-  </div>
-  <p class="footer-text">Glory to Mankind.</p>
-  <ul class="footer-links">
-    <li><a href="https://github.com/YoRHa-Agents/EnvA">GitHub</a></li>
-    <li><a href="https://github.com/YoRHa-Agents/EnvA/releases">Releases</a></li>
-    <li><a href="demo.html">Demo</a></li>
-    <li><a href="https://github.com/YoRHa-Agents/EnvA/blob/main/LICENSE">License</a></li>
-  </ul>
-  <p class="footer-copy">MIT &mdash; YoRHa-Agents &mdash; v0.4.0</p>
-</footer>
+    <section class="hero-card" id="features">
+      <div>
+        <p class="eyebrow">What Enva closes</p>
+        <h2>One product flow across vault, app launch, web review, and release distribution.</h2>
+      </div>
+      <p>
+        The compatibility baseline for Enva is the current README, docs, CLI behavior, tests,
+        embedded web UI, and `site/demo.html`. The product stays local-first while preserving
+        release/update paths and remote sync flows.
+      </p>
+      <ul class="hero-list">
+        <li>Local AES-256-GCM vault with Argon2id and HMAC validation.</li>
+        <li>Per-app injection with dry-run, `--cmd`, and app-path launch flows.</li>
+        <li>Embedded web UI and static demo that keep shared DOM and interaction hooks.</li>
+        <li>Release, install, and self-update contracts that stay aligned by asset naming.</li>
+      </ul>
+    </section>
 
-<script src="js/main.js"></script>
+    <section class="panel split-panel" id="install">
+      <div class="panel-section">
+        <h2 class="panel-title">Install and verify</h2>
+        <div class="command-list">
+          <article class="command-card">
+            <p>Recommended install script</p>
+            <code>curl -fsSL https://raw.githubusercontent.com/YoRHa-Agents/EnvA/main/scripts/install.sh | bash</code>
+            <button class="copy-inline" type="button" data-copy-text="curl -fsSL https://raw.githubusercontent.com/YoRHa-Agents/EnvA/main/scripts/install.sh | bash">Copy command</button>
+          </article>
+          <article class="command-card">
+            <p>Build from source</p>
+            <code>cargo build --release
+cp target/release/enva ~/.local/bin/</code>
+            <button class="copy-inline" type="button" data-copy-text="cargo build --release
+cp target/release/enva ~/.local/bin/">Copy command</button>
+          </article>
+          <article class="command-card">
+            <p>Post-install smoke</p>
+            <code>enva vault self-test
+enva update --help</code>
+            <button class="copy-inline" type="button" data-copy-text="enva vault self-test
+enva update --help">Copy command</button>
+          </article>
+        </div>
+      </div>
+      <div class="panel-section">
+        <h2 class="panel-title">Feature contract</h2>
+        <ul class="summary-list">
+          <li>`enva` starts the embedded web UI and `enva serve` keeps explicit host/port control.</li>
+          <li>`enva update` preserves tag selection, asset matching, verification, and atomic replacement.</li>
+          <li>`build.sh`, `scripts/install.sh`, and release assets stay aligned on naming.</li>
+          <li>`site/demo.html` and the embedded web UI keep shared import/export selection hooks.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel" id="quickstart">
+      <div>
+        <p class="eyebrow">Operational guide</p>
+        <h2 class="panel-title">Quick start</h2>
+      </div>
+      <div class="detail-grid">
+        <article class="detail-card">
+          <p>Create a vault</p>
+          <code>enva vault init --vault ./my.vault.json</code>
+        </article>
+        <article class="detail-card">
+          <p>Store a secret</p>
+          <code>enva vault set db-url -k DATABASE_URL -V "postgres://user:pass@host/db"</code>
+        </article>
+        <article class="detail-card">
+          <p>Assign it to an app</p>
+          <code>enva vault assign db-url --app backend</code>
+        </article>
+        <article class="detail-card">
+          <p>Run with injected env</p>
+          <code>enva --cmd "printenv DATABASE_URL" backend</code>
+        </article>
+        <article class="detail-card">
+          <p>Dry-run app secrets</p>
+          <code>enva backend</code>
+        </article>
+        <article class="detail-card">
+          <p>Open the web UI</p>
+          <code>enva serve --host 127.0.0.1 --port 3000</code>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel split-panel">
+      <div class="panel-section">
+        <h2 class="panel-title">Surfaces</h2>
+        <div class="detail-grid">
+          <article class="detail-card">
+            <p>CLI</p>
+            <code>vault / serve / update / enva &lt;APP&gt; / --cmd</code>
+          </article>
+          <article class="detail-card">
+            <p>Embedded web</p>
+            <code>/api routes + local review on 127.0.0.1</code>
+          </article>
+          <article class="detail-card">
+            <p>Pages demo</p>
+            <code>site/demo.html with parity-checked selection hooks</code>
+          </article>
+          <article class="detail-card">
+            <p>Remote flows</p>
+            <code>deploy / sync-from / preview / review / merge</code>
+          </article>
+        </div>
+      </div>
+      <div class="panel-section">
+        <h2 class="panel-title">Documentation front door</h2>
+        <ul class="summary-list">
+          <li><a href="https://github.com/YoRHa-Agents/EnvA/blob/main/README.md">Repository README</a></li>
+          <li><a href="https://github.com/YoRHa-Agents/EnvA/blob/main/docs/README.md">Docs index</a></li>
+          <li><a href="https://github.com/YoRHa-Agents/EnvA/blob/main/docs/agent-index.md">Agent index</a></li>
+          <li><a href="https://github.com/YoRHa-Agents/EnvA/blob/main/docs/design/en/common_alignment.md">Common alignment</a></li>
+        </ul>
+        <p class="footer-note">
+          This static landing now follows the same shell language used by `RustWebAppCommon`,
+          while Enva keeps its own product workflows and CLI contract.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Enva is a local-first encrypted environment variable manager.</span>
+    <ul class="footer-links">
+      <li><a href="demo.html">Demo</a></li>
+      <li><a href="https://github.com/YoRHa-Agents/EnvA/releases">Releases</a></li>
+      <li><a href="https://github.com/YoRHa-Agents/EnvA/blob/main/LICENSE">License</a></li>
+    </ul>
+  </footer>
+</div>
+<script src="js/main.js" defer></script>
 </body>
 </html>

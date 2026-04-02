@@ -19,8 +19,7 @@ use crate::{
     paths,
     ssh_config::{self, SshConfigError, SshHostConfig},
     ssh_hosts::{self, ManagedSshHostsError},
-    sync, update,
-    transfer,
+    sync, transfer, update,
     vault::{VaultError, VaultStore},
 };
 
@@ -400,7 +399,9 @@ fn transfer_error_response(error: transfer::TransferError) -> (StatusCode, Json<
         transfer::TransferError::Vault(VaultError::AppNotFound(_))
         | transfer::TransferError::Vault(VaultError::AliasNotFound(_))
         | transfer::TransferError::MissingExportScope => StatusCode::NOT_FOUND,
-        transfer::TransferError::Vault(VaultError::Corrupted(_)) => StatusCode::UNPROCESSABLE_ENTITY,
+        transfer::TransferError::Vault(VaultError::Corrupted(_)) => {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
         _ => StatusCode::BAD_REQUEST,
     };
     (
@@ -895,12 +896,7 @@ fn remote_vault_load_error_response(error: VaultError) -> (StatusCode, Json<Erro
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     };
-    (
-        status,
-        Json(ErrorResponse {
-            error: message,
-        }),
-    )
+    (status, Json(ErrorResponse { error: message }))
 }
 
 async fn list_ssh_hosts(
@@ -1064,21 +1060,20 @@ async fn update_ssh_host(
             )
         })?;
 
-    if updated_host.alias != alias {
-        if config_hosts
+    if updated_host.alias != alias
+        && (config_hosts
             .iter()
             .any(|candidate| candidate.alias == updated_host.alias)
             || managed_hosts.iter().enumerate().any(|(index, candidate)| {
                 index != existing_index && candidate.alias == updated_host.alias
-            })
-        {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(ErrorResponse {
-                    error: format!("SSH host alias already exists: {}", updated_host.alias),
-                }),
-            ));
-        }
+            }))
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: format!("SSH host alias already exists: {}", updated_host.alias),
+            }),
+        ));
     }
 
     managed_hosts[existing_index] = updated_host.clone();
@@ -1928,16 +1923,21 @@ async fn import_secrets(
     let mut format = None;
     let mut target_app = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|error| {
-        bad_request(format!("failed to read multipart payload: {error}"))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| bad_request(format!("failed to read multipart payload: {error}")))?
+    {
         let name = field.name().unwrap_or_default().to_string();
         match name.as_str() {
             "file" => {
                 file_name = field.file_name().map(ToOwned::to_owned);
-                file_bytes = Some(field.bytes().await.map_err(|error| {
-                    bad_request(format!("failed to read upload: {error}"))
-                })?);
+                file_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|error| bad_request(format!("failed to read upload: {error}")))?,
+                );
             }
             "format" => {
                 let value = field.text().await.map_err(|error| {
@@ -1949,9 +1949,10 @@ async fn import_secrets(
                 }
             }
             "app" => {
-                let value = field.text().await.map_err(|error| {
-                    bad_request(format!("failed to read app field: {error}"))
-                })?;
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| bad_request(format!("failed to read app field: {error}")))?;
                 let trimmed = value.trim();
                 if !trimmed.is_empty() {
                     target_app = Some(trimmed.to_string());
@@ -1962,9 +1963,8 @@ async fn import_secrets(
     }
 
     let file_bytes = file_bytes.ok_or_else(|| bad_request("missing file upload"))?;
-    let text = std::str::from_utf8(&file_bytes).map_err(|error| {
-        bad_request(format!("uploaded file must be valid UTF-8 text: {error}"))
-    })?;
+    let text = std::str::from_utf8(&file_bytes)
+        .map_err(|error| bad_request(format!("uploaded file must be valid UTF-8 text: {error}")))?;
     let explicit_format = format
         .as_deref()
         .map(transfer::TransferFormat::parse)
@@ -3270,8 +3270,12 @@ mod tests {
         store
             .set("api-key", "API_KEY", "secret-token", "", &[])
             .unwrap();
-        store.create_app("backend", "Backend", "/srv/backend").unwrap();
-        store.assign("backend", "db-url", Some("BACKEND_DB")).unwrap();
+        store
+            .create_app("backend", "Backend", "/srv/backend")
+            .unwrap();
+        store
+            .assign("backend", "db-url", Some("BACKEND_DB"))
+            .unwrap();
         store.assign("backend", "api-key", None).unwrap();
         store.save().unwrap();
 

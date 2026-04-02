@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
     paths:
+      - 'README.md'
+      - 'docs/**'
+      - 'crates/enva/src/web/**'
+      - 'crates/enva/web/**'
+      - 'crates/enva/tests/**'
+      - 'build.sh'
+      - 'scripts/**'
       - 'site/**'
   workflow_dispatch:
 
@@ -24,6 +31,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Rust tests
+        run: cargo test --workspace
 
       - name: Validate HTML
         run: |
