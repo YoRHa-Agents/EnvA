@@ -409,8 +409,51 @@ code, .mono { font-family:var(--font-mono); }
   background-image:repeating-linear-gradient(0deg, rgba(232,230,227,0.015) 0px, rgba(232,230,227,0.015) 1px, transparent 1px, transparent 3px);
 }
 </style>
+<link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="page-demo">
+
+<div class="shell demo-page-shell">
+  <header class="masthead">
+    <p class="eyebrow">02 / Interactive Demo</p>
+    <h1>Enva demo on the shared documentation shell.</h1>
+    <p class="lede">
+      This is the static GitHub Pages surface for Enva. It keeps the same import/export and
+      selection hooks as the embedded web UI while presenting them inside the neutral
+      `RustWebAppCommon` shell.
+    </p>
+  </header>
+
+  <nav class="topnav" aria-label="Enva demo navigation">
+    <a href="index.html">Landing</a>
+    <a class="active" href="demo.html">Live Demo</a>
+    <a href="https://github.com/YoRHa-Agents/EnvA/blob/main/README.md">README</a>
+    <a href="https://github.com/YoRHa-Agents/EnvA/blob/main/docs/design/en/common_alignment.md">Common Alignment</a>
+    <a href="https://github.com/YoRHa-Agents/EnvA">GitHub</a>
+  </nav>
+
+  <main class="content">
+    <section class="status-strip">
+      <div class="status-card">
+        <span class="status-label">Mode</span>
+        <span class="status-value">Simulation only</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">State store</span>
+        <span class="status-value">`localStorage` in the browser</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Parity guard</span>
+        <span class="status-value">Import/export hooks match embedded UI</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Primary flows</span>
+        <span class="status-value">Vault browse, assign, import, export</span>
+      </div>
+    </section>
+
+    <section class="panel demo-panel">
+      <div class="demo-canvas">
 
 <div class="scanline-overlay"></div>
 
@@ -516,7 +559,29 @@ code, .mono { font-family:var(--font-mono); }
   </div>
 </div>
 
-<!-- Modals (same structure as original, NieR styled via CSS above) -->
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="demo-support-grid">
+        <article class="detail-card">
+          <p>Surface contract</p>
+          <code>`exportSelectionList`, `exportSelectionSummary`, and `importConflictSummary` stay stable here.</code>
+        </article>
+        <article class="detail-card">
+          <p>Demo scope</p>
+          <code>Client-side simulation only. Remote preview/review hooks stay embedded-only.</code>
+        </article>
+        <article class="detail-card">
+          <p>Shared vocabulary</p>
+          <code>Vault, app assignment, import/export bundle flows, and CLI snippets remain product-level.</code>
+        </article>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Modals -->
 <div class="modal-overlay" id="secretModal">
   <div class="modal">
     <div class="modal-header">

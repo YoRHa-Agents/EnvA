@@ -6,6 +6,25 @@ Single static binary, zero runtime dependencies.
 
 ---
 
+## Reimplementation Base
+
+- Enva keeps its product behavior and CLI words, but the current reimplementation
+  plan reuses `RustWebAppCommon` patterns for docs/site structure, Pages,
+  release/install/update-check contracts, and adapter boundaries.
+- Keep vault crypto, secret/app domain logic, web routes, and SSH sync flows in
+  Enva's `app_owned` layer instead of widening `common_core`.
+- If a reusable gap appears, record it in
+  `/home/agent/workspace/RustWebAppCommon/doc_auto/enva_gap_requirements.md`
+  before changing the common base.
+- The current web surfaces also share the same neutral shell language used by
+  `RustWebAppCommon`: centered `shell`, `masthead`, `topnav`, status cards, and
+  bordered panels. Embedded web keeps its product DOM and route behavior while
+  adopting the same token and typography system.
+- For tracked downstream adoption notes, use `docs/design/en/migration_adoption.md`
+  instead of relying on `.local/` task notes.
+
+---
+
 ## Install
 
 ```bash
@@ -17,6 +36,12 @@ cargo build --release && cp target/release/enva ~/.local/bin/
 
 # Verify
 enva vault self-test
+```
+
+For installer validation reuse:
+
+```bash
+ENVA_POST_INSTALL_HOOK='bash scripts/post_install_smoke.sh' bash scripts/install.sh
 ```
 
 ---
@@ -31,6 +56,7 @@ enva vault self-test
 | `enva <APP> [ARGS...]` | Launch configured `app_path` with forwarded args; if no args and no `app_path`, show the dry-run env list | Yes (password) |
 | `enva --cmd "<command>" <APP>` | Inject env vars and run an arbitrary shell command | Yes (password) |
 | `enva serve [--port N] [--host H]` | Start web UI (explicit alias) | No |
+| `enva update [--version <tag>] [--force]` | Fetch the matching release asset, verify download size and any provided digest, then replace the installed binary | No |
 
 ### Vault management: `enva vault <subcommand>`
 
@@ -46,6 +72,8 @@ enva vault self-test
 | `unassign` | `enva vault unassign <alias> --app <name>` | Remove secret from app | Yes (password) |
 | `export` | `enva vault export [--app <name>] [--format env\|json\|enva-json\|yaml]` | Export resolved secrets or portable bundles | Yes (password) |
 | `import` | `enva vault import --from <file> [--format env\|json\|enva-json\|yaml] [--app <name>]` | Import flat env/json files or portable bundles (`import-env` remains an alias) | Yes (password) |
+| `deploy` | `enva vault deploy --to user@host:/path/to/vault.json [--ssh-port 22] [--ssh-key ~/.ssh/id_ed25519] [--overwrite]` | Deploy the local vault to a remote path over SSH | Yes (password) |
+| `sync-from` | `enva vault sync-from --from user@host:/path/to/vault.json [--ssh-port 22] [--overwrite\|--merge] [--prefer-local\|--prefer-remote]` | Pull a remote vault, then overwrite or merge with local state | Yes (password) |
 | `self-test` | `enva vault self-test` | Verify crypto primitives work | No |
 
 ### Global flags (all commands)
@@ -54,6 +82,8 @@ enva vault self-test
 |------|---------|---------|-------------|
 | `--vault <PATH>` | `ENVA_VAULT_PATH` | `~/.enva/vault.json` | Path to vault file |
 | `--config <PATH>` | `ENVA_CONFIG` | `~/.enva/config.yaml` | Path to config file |
+| `--env <name>` | — | unset | Load `.enva.<env>.yaml` as the highest project overlay |
+| `-P, --password <value>` | `ENVA_PASSWORD` | unset | Pass the vault password directly when interactive input is not desired |
 | `--password-stdin` | — | `false` | Read password from stdin (use this for non-interactive / CI) |
 | `-q, --quiet` | — | `false` | Suppress non-essential output |
 | `-v, --verbose` | — | `false` | Enable debug logging |

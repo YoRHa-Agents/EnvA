@@ -11,6 +11,37 @@ set -euo pipefail
 REPO="YoRHa-Agents/EnvA"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BINARY_NAME="enva"
+POST_INSTALL_HOOK="${ENVA_POST_INSTALL_HOOK:-${RWC_POST_INSTALL_HOOK:-}}"
+
+run_default_post_install_smoke() {
+    local binary_path
+    binary_path="$1"
+
+    echo "Running self-test..."
+    "$binary_path" vault self-test
+    "$binary_path" update --help >/dev/null
+}
+
+run_post_install_hook() {
+    local binary_path asset_name
+    binary_path="$1"
+    asset_name="$2"
+
+    if [[ -z "$POST_INSTALL_HOOK" ]]; then
+        run_default_post_install_smoke "$binary_path"
+        return
+    fi
+
+    echo "Running post-install hook..."
+    env \
+        ENVA_INSTALLED_BINARY="$binary_path" \
+        ENVA_INSTALL_ASSET="$asset_name" \
+        ENVA_INSTALL_DIR="$INSTALL_DIR" \
+        RWC_INSTALLED_BINARY="$binary_path" \
+        RWC_INSTALL_ASSET="$asset_name" \
+        RWC_INSTALL_DIR="$INSTALL_DIR" \
+        bash -lc "$POST_INSTALL_HOOK"
+}
 
 detect_platform() {
     local os arch
@@ -72,7 +103,7 @@ main() {
         echo ""
     fi
 
-    "$INSTALL_DIR/$BINARY_NAME" vault self-test
+    run_post_install_hook "$INSTALL_DIR/$BINARY_NAME" "$asset"
     echo ""
     echo "Installation complete. Run 'enva --help' to get started."
 }

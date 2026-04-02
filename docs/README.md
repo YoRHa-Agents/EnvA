@@ -2,6 +2,10 @@
 
 > Encrypted environment variable manager with per-app injection.
 > 基于加密 vault 的环境变量管理工具，支持按应用粒度注入。
+>
+> The Pages landing, live demo, and embedded web UI now follow the shared web-shell
+> language adopted from `RustWebAppCommon`, while Enva keeps its own CLI, vault,
+> and web API behavior.
 
 ## Quick Start / 快速开始
 
@@ -72,8 +76,11 @@ ever touching disk or shell history.
 | Config Reference | 配置参考 | [design/en/config_reference.md](design/en/config_reference.md) |
 | Deployment | 部署方案 | [design/en/deployment.md](design/en/deployment.md) |
 | Tech Decision | 技术选型 | [design/en/tech_decision.md](design/en/tech_decision.md) |
+| Common Alignment | common 底座对齐 | [design/en/common_alignment.md](design/en/common_alignment.md) |
+| Migration Adoption | 迁移接线与验证 | [design/en/migration_adoption.md](design/en/migration_adoption.md) |
 | Agent Index | Agent 参考 | [agent-index.md](agent-index.md) |
-| Web Demo | 网页演示 | [design/demo/index.html](design/demo/index.html) |
+| Design Demo | 设计演示 | [design/demo/index.html](design/demo/index.html) |
+| Live Demo | 在线演示 | [../site/demo.html](../site/demo.html) |
 
 ---
 
