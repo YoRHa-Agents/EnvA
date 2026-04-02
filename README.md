@@ -128,7 +128,7 @@ and legacy whole-vault deploy/sync-from actions.
 
 ```bash
 enva update
-enva update --version v0.6.1
+enva update --version v1.0.0
 enva update --force
 ```
 

@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-02
+
+### Added
+
+- **Tracked migration adoption guide**: Added `docs/design/en/migration_adoption.md` so Enva's downstream adoption of `RustWebAppCommon` validation seams has a tracked, portable handoff instead of relying on `.local/` notes.
+- **Post-install smoke script**: Added `scripts/post_install_smoke.sh` as the canonical Enva product smoke entry point for installed binaries.
+- **Product validation oracle coverage**: Expanded `reimplementation_oracle.rs` to cover tracked migration adoption docs, installer hook compatibility, and product CI gate expectations.
+
+### Changed
+
+- **Web shell alignment**: Restyled the GitHub Pages landing, live demo, embedded web UI, and design demo to use the neutral shell language shared with `RustWebAppCommon` while preserving Enva-specific workflows and parity hooks.
+- **Installer hook compatibility**: `scripts/install.sh` now accepts `ENVA_POST_INSTALL_HOOK` and `RWC_POST_INSTALL_HOOK`, running product smoke through a unified post-install seam.
+- **Product gate alignment**: Tightened GitHub Pages and GitLab validation so Rust tests, HTML validation, and tracked oracle expectations stay closer to the release validation bar.
+- **Documentation front door**: Refreshed README, docs index, agent index, and common-alignment docs to describe the shared shell, tracked adoption notes, and portable truth sources.
+
+### Fixed
+
+- **Local-only oracle dependency**: Replaced `.local` as the only compatibility-oracle source in tracked tests with a checked-in migration adoption document so clean clones and CI do not depend on ignored workspace notes.
+
 ## [0.6.1] - 2026-04-01
 
 ### Fixed
@@ -147,7 +166,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.0.0
 [0.6.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.1
 [0.6.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.0
 [0.5.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.5.0

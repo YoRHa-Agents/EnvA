@@ -98,9 +98,18 @@ mod tests {
 
     #[test]
     fn resolve_vault_path_expands_tilde() {
-        let home = dirs::home_dir().unwrap();
+        let _lock = process_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let original_home = std::env::var_os("HOME");
+        std::env::set_var("HOME", "/tmp/enva-home");
+
         let resolved = resolve_vault_path("~/vault.json").unwrap();
-        assert_eq!(resolved, home.join("vault.json").to_string_lossy());
+
+        match original_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+
+        assert_eq!(resolved, "/tmp/enva-home/vault.json");
     }
 
     #[test]
