@@ -499,6 +499,11 @@ fn ssh_host_response(host: &ResolvedSshHost) -> serde_json::Value {
 }
 
 #[derive(Serialize)]
+struct VersionResponse {
+    version: String,
+}
+
+#[derive(Serialize)]
 struct ErrorResponse {
     error: String,
 }
@@ -664,10 +669,17 @@ fn default_ssh_port() -> u16 {
     22
 }
 
+async fn get_version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        version: format!("v{}", env!("CARGO_PKG_VERSION")),
+    })
+}
+
 pub fn api_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
+        .route("/version", get(get_version))
         .route("/update/check", get(check_for_updates))
         .route("/paths/resolve", post(resolve_path))
         .route(

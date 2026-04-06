@@ -945,7 +945,7 @@ code, .mono { font-family:var(--font-mono); }
       </div>
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Self Update</div>
-        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v0.2.0</div>
+        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.0.0</div>
         <button class="btn btn-outline btn-sm" onclick="checkForUpdates()">Check for Updates</button>
       </div>
     </div>
@@ -1203,7 +1203,7 @@ const SECRETS = {};
 const APPS = {};
 
 const SSH_HOSTS = {};
-const APP_VERSION = 'v0.3.0';
+let APP_VERSION = 'v1.0.0';
 
 let currentView = 'all';
 let revealedValues = new Set();
@@ -3748,6 +3748,16 @@ setLanguage(currentLang);
   } catch (_) {
     await syncVaultPathFields();
   }
+})();
+
+(async function fetchVersion() {
+  try {
+    const resp = await fetch('/api/version');
+    if (resp.ok) {
+      const data = await resp.json();
+      APP_VERSION = data.version;
+    }
+  } catch (_) {}
 })();
 </script>
 </body>
