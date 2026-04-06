@@ -615,7 +615,7 @@ enva vault import --from ./backend.bundle.yaml --vault ./vault.json
 **Signature**:
 
 ```
-enva serve [--port PORT] [--vault PATH] [--host HOST] [--no-open]
+enva [--vault PATH] serve [--port PORT] [--host HOST] [--no-open]
 ```
 
 | Parameter/Option | Type | Required | Default | Description |
@@ -646,21 +646,21 @@ enva serve [--port PORT] [--vault PATH] [--host HOST] [--no-open]
 **Examples**:
 
 ```bash
-enva serve --vault ./vault.json
-enva serve --port 9090 --host 0.0.0.0 --vault ./vault.json
-enva serve --no-open --vault ./vault.json
+enva --vault ./vault.json serve
+enva --vault ./vault.json serve --port 9090 --host 0.0.0.0
+enva --vault ./vault.json serve --no-open
 ```
 
 ---
 
-#### 1.4.10 `enva self-test`
+#### 1.4.10 `enva vault self-test`
 
 **Purpose**: Verify installation integrity — check dependency availability, encryption correctness, and configuration file readability.
 
 **Signature**:
 
 ```
-enva self-test
+enva vault self-test
 ```
 
 No additional parameters. Does not require `--vault` (no real vault is accessed).

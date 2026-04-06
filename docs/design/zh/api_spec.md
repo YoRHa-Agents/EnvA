@@ -615,7 +615,7 @@ enva vault import --from ./backend.bundle.yaml --vault ./vault.json
 **签名**:
 
 ```
-enva serve [--port PORT] [--vault PATH] [--host HOST] [--no-open]
+enva [--vault PATH] serve [--port PORT] [--host HOST] [--no-open]
 ```
 
 | 参数/选项 | 类型 | 必填 | 默认值 | 说明 |
@@ -646,21 +646,21 @@ enva serve [--port PORT] [--vault PATH] [--host HOST] [--no-open]
 **示例**:
 
 ```bash
-enva serve --vault ./vault.json
-enva serve --port 9090 --host 0.0.0.0 --vault ./vault.json
-enva serve --no-open --vault ./vault.json
+enva --vault ./vault.json serve
+enva --vault ./vault.json serve --port 9090 --host 0.0.0.0
+enva --vault ./vault.json serve --no-open
 ```
 
 ---
 
-#### 1.4.10 `enva self-test`
+#### 1.4.10 `enva vault self-test`
 
 **功能**: 验证安装完整性——检查依赖库可用性、加密功能正确性、配置文件可读性。
 
 **签名**:
 
 ```
-enva self-test
+enva vault self-test
 ```
 
 无额外参数。不需要 `--vault`（不操作真实 vault）。

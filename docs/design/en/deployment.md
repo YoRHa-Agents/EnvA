@@ -119,7 +119,7 @@ enva hook install
 #   - Will not duplicate (idempotent)
 
 # Step 4: Verify installation
-enva self-test
+enva vault self-test
 ```
 
 ### 3.3 Shell Hook Installation Details (Linux)
@@ -189,7 +189,7 @@ enva hook install
 #   - Appends a source line to ~/.zshrc
 
 # Step 4: Verify installation
-enva self-test
+enva vault self-test
 ```
 
 ### 4.3 macOS-Specific Considerations
@@ -269,7 +269,7 @@ Identical to Linux:
 └──────┬───────┘
        ▼
 ┌──────────────┐
-│ run_self_test │  enva self-test
+│ run_self_test │  enva vault self-test
 └──────┬───────┘
        ▼ PASS → exit 0 / FAIL → exit 30
 ```
@@ -350,7 +350,7 @@ install_hooks() {
 # ── Self-test ─────────────────────────────────────
 run_self_test() {
     echo "Running self-test..."
-    enva self-test || { echo "ERROR: self-test failed"; exit 30; }
+    enva vault self-test || { echo "ERROR: self-test failed"; exit 30; }
     echo "Installation complete."
 }
 
@@ -370,7 +370,7 @@ run_self_test
 | Binary installation | Checks whether `enva` is already on PATH; skips if present |
 | `enva init` | Checks whether `~/.enva/config.yaml` already exists; skips if present |
 | `enva hook install` | `grep -q` checks whether the source line already exists in the rc file; skips if present |
-| `enva self-test` | Read-only verification, no state modification |
+| `enva vault self-test` | Read-only verification, no state modification |
 
 ---
 
@@ -418,7 +418,7 @@ rust-build (macos-14)      → test + build release binary
       - name: CLI smoke test
         run: |
           ./target/release/enva --help
-          ./target/release/enva self-test
+          ./target/release/enva vault self-test
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
