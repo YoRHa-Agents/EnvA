@@ -608,14 +608,14 @@ enva vault import --from ./backend.bundle.yaml --vault ./vault.json
 
 ---
 
-#### 1.4.9 `secrets serve`
+#### 1.4.9 `enva serve`
 
 **功能**: 启动 Web 管理服务（Axum + Tokio），提供 RESTful API 和 Web UI。
 
 **签名**:
 
 ```
-secrets serve [--port PORT] [--vault PATH] [--host HOST]
+enva serve [--port PORT] [--vault PATH] [--host HOST] [--no-open]
 ```
 
 | 参数/选项 | 类型 | 必填 | 默认值 | 说明 |
@@ -623,12 +623,16 @@ secrets serve [--port PORT] [--vault PATH] [--host HOST]
 | `--port` | `int` | 否 | `8080`（来自全局配置 `web.port`） | 监听端口 |
 | `--host` | `str` | 否 | `127.0.0.1`（来自全局配置 `web.host`） | 监听地址 |
 | `--vault` | `click.Path(exists=True)` | 否 | 全局默认 | vault 文件路径 |
+| `--no-open` | `bool` | 否 | `false` | 禁用启动时自动打开浏览器 |
+
+> **注意：** 当直接运行 `enva`（无子命令）时，会优先检查 `~/.enva/last_port` 中保存的上次端口。若存在，则使用该端口而非 `web.port`。`enva serve -p <N>` 始终使用指定端口。两种方式都会将端口保存到 `~/.enva/last_port`。
 
 **行为**:
 1. 加载全局配置获取 CORS、session timeout、rate limit 参数
 2. 校验 vault 文件存在且可读
 3. 启动 Axum HTTP 服务器
-4. 阻塞直到 `SIGINT`/`SIGTERM`
+4. 自动在默认浏览器中打开 Web UI（除非指定了 `--no-open`）
+5. 阻塞直到 `SIGINT`/`SIGTERM`
 
 **stderr**（启动）:
 
@@ -642,20 +646,21 @@ secrets serve [--port PORT] [--vault PATH] [--host HOST]
 **示例**:
 
 ```bash
-secrets serve --vault ./vault.json
-secrets serve --port 9090 --host 0.0.0.0 --vault ./vault.json
+enva serve --vault ./vault.json
+enva serve --port 9090 --host 0.0.0.0 --vault ./vault.json
+enva serve --no-open --vault ./vault.json
 ```
 
 ---
 
-#### 1.4.10 `secrets self-test`
+#### 1.4.10 `enva self-test`
 
 **功能**: 验证安装完整性——检查依赖库可用性、加密功能正确性、配置文件可读性。
 
 **签名**:
 
 ```
-secrets self-test
+enva self-test
 ```
 
 无额外参数。不需要 `--vault`（不操作真实 vault）。
@@ -671,7 +676,7 @@ secrets self-test
 ```
 Secrets Manager Self-Test
 ─────────────────────────
-Enva:          0.2.0 (x86_64-linux)
+Enva:          1.0.0 (x86_64-linux)
 aes-gcm:       ✓ 0.10
 argon2:        ✓ 0.5
 clap:          ✓ 4.5

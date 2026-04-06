@@ -45,7 +45,7 @@
       </div>
       <div class="status-card">
         <span class="status-label">Default bind</span>
-        <span class="status-value">127.0.0.1:8080</span>
+        <span class="status-value">127.0.0.1:8080 (auto-opens browser)</span>
       </div>
       <div class="status-card">
         <span class="status-label">Release assets</span>
@@ -103,8 +103,8 @@ enva update --help">Copy command</button>
       <div class="panel-section">
         <h2 class="panel-title">Feature contract</h2>
         <ul class="summary-list">
-          <li>`enva` starts the embedded web UI and `enva serve` keeps explicit host/port control.</li>
-          <li>`enva update` preserves tag selection, asset matching, verification, and atomic replacement.</li>
+          <li>`enva` starts the embedded web UI with auto-open browser and port persistence; `enva serve` keeps explicit host/port control with `--no-open` option.</li>
+          <li>`enva update` and the web UI Settings panel preserve tag selection, asset matching, verification, and atomic replacement.</li>
           <li>`build.sh`, `scripts/install.sh`, and release assets stay aligned on naming.</li>
           <li>`site/demo.html` and the embedded web UI keep shared import/export selection hooks.</li>
         </ul>
@@ -139,7 +139,9 @@ enva update --help">Copy command</button>
         </article>
         <article class="detail-card">
           <p>Open the web UI</p>
-          <code>enva serve --host 127.0.0.1 --port 3000</code>
+          <code>enva                        # auto-opens browser
+enva serve --port 3000      # custom port
+enva serve --no-open        # suppress browser</code>
         </article>
       </div>
     </section>

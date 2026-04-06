@@ -44,7 +44,7 @@ cp target/release/enva ~/.local/bin/
 ### 验证安装
 
 ```bash
-enva self-test
+enva vault self-test
 ```
 
 预期输出：
@@ -217,11 +217,21 @@ enva vault import --from bundle.yaml --vault vault.json
 
 ### `enva serve`
 
-启动 Web 管理服务器。
+启动 Web 管理服务器。启动后会自动打开浏览器，使用 `--no-open` 可禁用。
 
-### `enva self-test`
+```bash
+enva serve                                # 默认 127.0.0.1:8080，自动打开浏览器
+enva serve --port 3000 --host 0.0.0.0    # 自定义绑定
+enva serve --no-open                      # 不自动打开浏览器
+```
+
+### `enva vault self-test`
 
 验证安装完整性。
+
+```bash
+enva vault self-test
+```
 
 ---
 
@@ -276,10 +286,14 @@ source ~/.enva/hooks/enva-hook.zsh
 ## 7. Web 管理界面
 
 ```bash
-enva serve --vault ~/.enva/vault.json --port 8080
+enva                                      # 自动打开浏览器，使用上次端口或配置默认端口
+enva serve --port 3000                    # 自定义端口，自动打开浏览器
+enva serve --no-open                      # 启动服务器但不打开浏览器
 ```
 
-在浏览器中打开 `http://127.0.0.1:8080`。
+浏览器会自动打开。端口默认使用上次成功使用的端口（保存在 `~/.enva/last_port`），若无则使用配置中的 `web.port`（默认 `8080`）。
+
+Web UI 也支持自更新：前往 **设置 → 自更新 → 检查更新** 即可直接下载并应用更新。
 
 ---
 
@@ -312,7 +326,7 @@ Enva 完全由 Rust 实现。密钥在释放时通过 `zeroize` crate 清零。`
 **"HMAC verification failed"** — Vault 文件在 Enva 之外被修改过。
 
 ```bash
-enva self-test
+enva vault self-test
 ```
 
 ---

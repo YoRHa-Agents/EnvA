@@ -100,6 +100,8 @@
 | `web.rate_limit.max_attempts` | int | `5` | 密码错误最大尝试次数；超限后锁定 | 可选；`>= 1` | `5` | L2 |
 | `web.rate_limit.lockout_seconds` | int | `300` | 锁定持续时间（秒） | 可选；`>= 0`；`0` 表示不锁定 | `300` | L2 |
 
+> **注意：** 当直接运行 `enva`（无子命令）时，会优先检查 `~/.enva/last_port` 中保存的上次端口。若存在，则使用该端口而非 `web.port`。`enva serve -p <N>` 始终使用指定端口。两种方式都会将端口保存到 `~/.enva/last_port`。
+
 ### 3.6 logging — 日志与审计
 
 | 字段路径 | 类型 | 默认值 | 说明 | 校验规则 | 示例 | 可设定层 |
@@ -205,7 +207,7 @@ enva --env staging backend --port 3000
 | `shell.hooks.bash` | `"~/.secrets/hooks/secrets-hook.bash"` |
 | `shell.hooks.zsh` | `"~/.secrets/hooks/secrets-hook.zsh"` |
 | `web.host` | `"127.0.0.1"` |
-| `web.port` | `8080` |
+| `web.port` | `8080`（参见 3.5 节关于 `~/.enva/last_port` 持久化的说明） |
 | `web.cors_origins` | `["http://localhost:*"]` |
 | `web.session_timeout` | `1800` |
 | `web.rate_limit.max_attempts` | `5` |

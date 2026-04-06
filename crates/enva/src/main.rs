@@ -22,11 +22,12 @@ type AppEnvAndPath = (InjectedEnv, Option<String>);
     long_about = "Enva manages encrypted secrets in a local vault and injects them as environment\n\
                    variables into applications.\n\n\
                    Usage patterns:\n  \
-                   enva                          Start the web configuration UI\n  \
+                   enva                          Start web UI and open browser (port from config/last used)\n  \
                    enva <APP> [ARGS...]          Launch app_path with secrets and forwarded args\n  \
                    enva --cmd \"<command>\" <APP> Inject env vars and exec a shell command\n  \
                    enva vault <subcommand>       Manage vault contents\n  \
-                   enva serve                    Start web UI (explicit alias)\n  \
+                   enva serve [--no-open]        Start web UI (--no-open skips browser)\n  \
+                   enva update                   Self-update from GitHub Releases\n  \
                    enva --env staging vault list Load .enva.staging.yaml overlay"
 )]
 struct Cli {
