@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-06
+
+### Added
+
+- **Version display**: The static GitHub Pages site and the embedded web UI now show the current release version. A public `/api/version` endpoint returns the compiled version without authentication.
+- **Port persistence**: `enva` (no subcommand) reads the last successfully used port from `~/.enva/last_port`, falling back to `web.port` in config (default 8080). Every serve invocation saves the port for next time.
+- **Auto-open browser**: `enva` and `enva serve` now open the default browser automatically on startup. Use `enva serve --no-open` to suppress.
+- **Web UI self-update**: The Settings panel can now check for updates *and* apply them directly (`POST /api/update/apply`), replacing the previous "run `enva update` in your shell" message.
+
+### Changed
+
+- **Documentation sync**: README, English and Chinese user guides, API specs, config references, deployment guides, agent index, and GitHub Pages site updated to reflect port persistence, `--no-open`, web UI update flow, and corrected `enva vault self-test` command references.
+
 ## [1.0.0] - 2026-04-02
 
 ### Added
@@ -166,7 +179,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.1.0
 [1.0.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.0.0
 [0.6.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.1
 [0.6.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.0
