@@ -22,11 +22,12 @@ type AppEnvAndPath = (InjectedEnv, Option<String>);
     long_about = "Enva manages encrypted secrets in a local vault and injects them as environment\n\
                    variables into applications.\n\n\
                    Usage patterns:\n  \
-                   enva                          Start the web configuration UI\n  \
+                   enva                          Start web UI and open browser (port from config/last used)\n  \
                    enva <APP> [ARGS...]          Launch app_path with secrets and forwarded args\n  \
                    enva --cmd \"<command>\" <APP> Inject env vars and exec a shell command\n  \
                    enva vault <subcommand>       Manage vault contents\n  \
-                   enva serve                    Start web UI (explicit alias)\n  \
+                   enva serve [--no-open]        Start web UI (--no-open skips browser)\n  \
+                   enva update                   Self-update from GitHub Releases\n  \
                    enva --env staging vault list Load .enva.staging.yaml overlay"
 )]
 struct Cli {
@@ -90,6 +91,9 @@ enum Commands {
         /// Host to bind to
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+        /// Do not open the browser automatically
+        #[arg(long)]
+        no_open: bool,
     },
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -486,27 +490,68 @@ fn run_update_command(
     Ok(())
 }
 
+fn last_port_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".enva").join("last_port"))
+}
+
+fn read_last_port() -> Option<u16> {
+    let path = last_port_path()?;
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+}
+
+fn save_last_port(port: u16) {
+    if let Some(path) = last_port_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, port.to_string());
+    }
+}
+
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!(command = ?cli.command, shell_command = ?cli.cmd, "dispatching command");
     if cli.cmd.is_some() && !matches!(cli.command, Some(Commands::External(_))) {
         return Err("--cmd can only be used with `enva --cmd \"<command>\" <APP>`.".into());
     }
     match &cli.command {
-        None => run_serve(&cli, "127.0.0.1", 8080),
+        None => {
+            let cfg = config::ConfigLoader::load(cli.config.as_deref(), cli.env.as_deref());
+            let port = read_last_port().unwrap_or(cfg.web.port);
+            let host = cfg.web.host.clone();
+            run_serve(&cli, &host, port, true)
+        }
         Some(Commands::Update { version, force }) => {
             run_update_command(&cli, version.as_deref(), *force)
         }
-        Some(Commands::Serve { port, host }) => run_serve(&cli, host, *port),
+        Some(Commands::Serve {
+            port,
+            host,
+            no_open,
+        }) => run_serve(&cli, host, *port, !no_open),
         Some(Commands::Vault { cmd }) => run_vault_command(&cli, cmd),
         Some(Commands::External(args)) => run_app(&cli, args),
     }
 }
 
-fn run_serve(cli: &Cli, host: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+fn run_serve(
+    cli: &Cli,
+    host: &str,
+    port: u16,
+    open_browser: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let vp = resolve_vault_path(cli)?;
     tracing::debug!(host, port, vault_path = %vp, "starting web server");
+    save_last_port(port);
+    let url = format!("http://{host}:{port}");
     if !cli.quiet {
-        println!("Enva Web UI: http://{host}:{port}");
+        println!("Enva Web UI: {url}");
+    }
+    if open_browser {
+        if let Err(e) = open::that(&url) {
+            tracing::warn!("failed to open browser: {e}");
+        }
     }
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(web::serve(&vp, host, port))?;
@@ -987,9 +1032,31 @@ mod tests {
         let cli = Cli::try_parse_from(["enva", "serve", "-p", "9091"]).unwrap();
         assert!(cli.password.is_none());
         match cli.command.as_ref() {
-            Some(Commands::Serve { port, host }) => {
+            Some(Commands::Serve {
+                port,
+                host,
+                no_open,
+            }) => {
                 assert_eq!(*port, 9091);
                 assert_eq!(host, "127.0.0.1");
+                assert!(!no_open);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn serve_no_open_flag_is_accepted() {
+        let cli = Cli::try_parse_from(["enva", "serve", "--no-open"]).unwrap();
+        match cli.command.as_ref() {
+            Some(Commands::Serve {
+                port,
+                host,
+                no_open,
+            }) => {
+                assert_eq!(*port, 8080);
+                assert_eq!(host, "127.0.0.1");
+                assert!(*no_open);
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -1078,5 +1145,39 @@ mod tests {
         assert!(err
             .to_string()
             .contains("--cmd cannot be combined with launch arguments."));
+    }
+
+    #[test]
+    fn save_and_read_last_port_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let port_file = tmp.path().join("last_port");
+
+        std::fs::write(&port_file, "9090").unwrap();
+        let content = std::fs::read_to_string(&port_file).unwrap();
+        assert_eq!(content.trim().parse::<u16>().unwrap(), 9090);
+
+        std::fs::write(&port_file, "3000").unwrap();
+        let content = std::fs::read_to_string(&port_file).unwrap();
+        assert_eq!(content.trim().parse::<u16>().unwrap(), 3000);
+    }
+
+    #[test]
+    fn read_last_port_returns_none_for_invalid_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let port_file = tmp.path().join("last_port");
+
+        std::fs::write(&port_file, "not-a-number").unwrap();
+        let parsed: Option<u16> = std::fs::read_to_string(&port_file)
+            .ok()
+            .and_then(|s| s.trim().parse().ok());
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn read_last_port_returns_none_for_missing_file() {
+        let parsed: Option<u16> = std::fs::read_to_string("/tmp/enva_nonexistent_last_port")
+            .ok()
+            .and_then(|s| s.trim().parse().ok());
+        assert!(parsed.is_none());
     }
 }

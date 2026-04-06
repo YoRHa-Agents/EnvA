@@ -608,14 +608,14 @@ enva vault import --from ./backend.bundle.yaml --vault ./vault.json
 
 ---
 
-#### 1.4.9 `secrets serve`
+#### 1.4.9 `enva serve`
 
 **Purpose**: Start a web management service (Axum + Tokio) providing a RESTful API and Web UI.
 
 **Signature**:
 
 ```
-secrets serve [--port PORT] [--vault PATH] [--host HOST]
+enva [--vault PATH] serve [--port PORT] [--host HOST] [--no-open]
 ```
 
 | Parameter/Option | Type | Required | Default | Description |
@@ -623,12 +623,16 @@ secrets serve [--port PORT] [--vault PATH] [--host HOST]
 | `--port` | `int` | No | `8080` (from global config `web.port`) | Listen port |
 | `--host` | `str` | No | `127.0.0.1` (from global config `web.host`) | Listen address |
 | `--vault` | `click.Path(exists=True)` | No | Global default | Vault file path |
+| `--no-open` | `bool` | No | `false` | Disable automatic browser opening on startup |
+
+> **Note:** When `enva` is run without a subcommand, it first checks `~/.enva/last_port` for the last successfully used port; if found, that port is used instead of `web.port`. The `enva serve -p <N>` command always uses the specified port. Both paths save the port to `~/.enva/last_port` for next time.
 
 **Behavior**:
 1. Load global configuration to obtain CORS, session timeout, and rate limit parameters
 2. Verify that the vault file exists and is readable
 3. Start the Axum HTTP server
-4. Block until `SIGINT`/`SIGTERM`
+4. Automatically open the Web UI in the default browser (unless `--no-open` is specified)
+5. Block until `SIGINT`/`SIGTERM`
 
 **stderr** (startup):
 
@@ -642,20 +646,21 @@ secrets serve [--port PORT] [--vault PATH] [--host HOST]
 **Examples**:
 
 ```bash
-secrets serve --vault ./vault.json
-secrets serve --port 9090 --host 0.0.0.0 --vault ./vault.json
+enva --vault ./vault.json serve
+enva --vault ./vault.json serve --port 9090 --host 0.0.0.0
+enva --vault ./vault.json serve --no-open
 ```
 
 ---
 
-#### 1.4.10 `secrets self-test`
+#### 1.4.10 `enva vault self-test`
 
 **Purpose**: Verify installation integrity — check dependency availability, encryption correctness, and configuration file readability.
 
 **Signature**:
 
 ```
-secrets self-test
+enva vault self-test
 ```
 
 No additional parameters. Does not require `--vault` (no real vault is accessed).
@@ -671,7 +676,7 @@ No additional parameters. Does not require `--vault` (no real vault is accessed)
 ```
 Secrets Manager Self-Test
 ─────────────────────────
-Enva:          0.2.0 (x86_64-linux)
+Enva:          1.0.0 (x86_64-linux)
 aes-gcm:       ✓ 0.10
 argon2:        ✓ 0.5
 clap:          ✓ 4.5

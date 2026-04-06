@@ -44,7 +44,7 @@ cp target/release/enva ~/.local/bin/
 ### Verify Installation
 
 ```bash
-enva self-test
+enva vault self-test
 ```
 
 Expected output:
@@ -353,18 +353,20 @@ enva vault import --from bundle.yaml --vault vault.json
 
 ### `enva serve`
 
-Start the Web UI management server.
+Start the Web UI management server. Opens the default browser automatically unless `--no-open` is specified.
 
 ```bash
-enva serve --port 8080 --host 127.0.0.1 --vault vault.json
+enva serve                                # default 127.0.0.1:8080, opens browser
+enva serve --port 3000 --host 0.0.0.0    # custom bind
+enva serve --no-open                      # suppress browser auto-open
 ```
 
-### `enva self-test`
+### `enva vault self-test`
 
 Verify installation integrity.
 
 ```bash
-enva self-test
+enva vault self-test
 ```
 
 ---
@@ -425,10 +427,14 @@ The Web UI provides a browser-based interface for managing secrets without using
 ### Starting the Server
 
 ```bash
-enva serve --vault ~/.enva/vault.json --port 8080
+enva                                      # opens browser, uses last port or config default
+enva serve --port 3000                    # custom port, opens browser
+enva serve --no-open                      # start server without opening browser
 ```
 
-Open `http://127.0.0.1:8080` in your browser.
+The browser opens automatically. The port defaults to the last successfully used port (saved in `~/.enva/last_port`), falling back to `web.port` in your config (default `8080`).
+
+The web UI also supports self-update: go to **Settings → Self Update → Check for Updates** to download and apply updates directly.
 
 ---
 
@@ -477,7 +483,7 @@ Each secret value is encrypted independently with a fresh 12-byte random nonce, 
 ### Self-Test
 
 ```bash
-enva self-test
+enva vault self-test
 ```
 
 ### Password Recovery

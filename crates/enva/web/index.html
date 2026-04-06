@@ -945,7 +945,7 @@ code, .mono { font-family:var(--font-mono); }
       </div>
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Self Update</div>
-        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v0.2.0</div>
+        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.0.0</div>
         <button class="btn btn-outline btn-sm" onclick="checkForUpdates()">Check for Updates</button>
       </div>
     </div>
@@ -1203,7 +1203,7 @@ const SECRETS = {};
 const APPS = {};
 
 const SSH_HOSTS = {};
-const APP_VERSION = 'v0.3.0';
+let APP_VERSION = 'v1.0.0';
 
 let currentView = 'all';
 let revealedValues = new Set();
@@ -1734,12 +1734,64 @@ async function checkForUpdates() {
   try {
     const data = await apiFetch('/update/check');
     if (data.needs_update) {
-      setUpdateStatus(`Update available: ${data.target_version} (${data.asset_name}). Run 'enva update' in your shell.`);
+      setUpdateStatus(`Update available: ${data.target_version}`);
+      showUpdateButton(data.target_version);
     } else {
       setUpdateStatus(`Already up to date (${data.current_version}).`);
+      hideUpdateButton();
     }
   } catch (err) {
     setUpdateStatus(err.message, true);
+  }
+}
+
+function showUpdateButton(targetVersion) {
+  let btn = document.getElementById('applyUpdateBtn');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id = 'applyUpdateBtn';
+    btn.className = 'btn btn-primary btn-sm';
+    btn.style.marginTop = '8px';
+    const statusEl = document.getElementById('updateStatus');
+    if (statusEl) statusEl.parentNode.insertBefore(btn, statusEl.nextSibling);
+  }
+  btn.textContent = `Update to ${targetVersion}`;
+  btn.onclick = () => performUpdate();
+  btn.style.display = '';
+  btn.disabled = false;
+}
+
+function hideUpdateButton() {
+  const btn = document.getElementById('applyUpdateBtn');
+  if (btn) btn.style.display = 'none';
+}
+
+async function performUpdate() {
+  const btn = document.getElementById('applyUpdateBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+  }
+  setUpdateStatus('Downloading and applying update...');
+  try {
+    const data = await apiFetch('/update/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    if (data.restart_required) {
+      setUpdateStatus(`Updated to ${data.updated_version}. Please restart the Enva server.`);
+      if (btn) btn.textContent = 'Restart Required';
+    } else {
+      setUpdateStatus(data.message);
+      hideUpdateButton();
+    }
+  } catch (err) {
+    setUpdateStatus(`Update failed: ${err.message}`, true);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Retry Update';
+    }
   }
 }
 
@@ -3748,6 +3800,16 @@ setLanguage(currentLang);
   } catch (_) {
     await syncVaultPathFields();
   }
+})();
+
+(async function fetchVersion() {
+  try {
+    const resp = await fetch('/api/version');
+    if (resp.ok) {
+      const data = await resp.json();
+      APP_VERSION = data.version;
+    }
+  } catch (_) {}
 })();
 </script>
 </body>

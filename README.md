@@ -27,9 +27,8 @@ Front door:
   Override env var names per-app without modifying the secret itself.
 - **Built-in Web UI** — Browse, edit, rename, assign, import, and export secrets through an
   embedded web interface. No external dependencies.
-- **Self-Update** — `enva update` fetches the latest compatible binary from GitHub Releases,
-  verifies download size plus any SHA256 digest shipped in release metadata, and atomically
-  replaces the installed executable.
+- **Self-Update** — `enva update` or the web UI Settings panel fetches the latest
+  compatible binary from GitHub Releases, verifies download size plus any SHA256 digest shipped in release metadata, and atomically replaces the installed executable.
 - **SSH Remote Sync** — Read `~/.ssh/config`, preview remote vault contents, and run selective
   deploy/sync operations from the web UI.
 - **Cross-Platform** — Pre-built binaries for Linux x86_64, Linux aarch64, and macOS Apple
@@ -116,9 +115,13 @@ enva backend
 ### Web UI
 
 ```bash
-enva                                     # http://127.0.0.1:8080
-enva serve --port 3000 --host 0.0.0.0   # custom bind
+enva                                     # opens browser, port from config or last used
+enva serve --port 3000 --host 0.0.0.0   # custom bind, opens browser
+enva serve --port 3000 --no-open        # custom bind, no browser
 ```
+
+The web UI also supports self-update: open Settings and click **Check for Updates** to
+download and apply updates directly without the command line.
 
 The web UI includes SSH remote management: reads `~/.ssh/config`, supports web-managed hosts
 via `~/.enva/ssh_hosts.json`, remote vault preview, selective sync/deploy, diff/merge review,
@@ -127,10 +130,12 @@ and legacy whole-vault deploy/sync-from actions.
 ### Self Update
 
 ```bash
-enva update
-enva update --version v1.0.0
-enva update --force
+enva update                              # update via CLI
+enva update --version v1.0.0             # specific version
+enva update --force                      # force reinstall or downgrade
 ```
+
+Updates can also be triggered from the embedded web UI via **Settings → Check for Updates**.
 
 ### App Injection
 

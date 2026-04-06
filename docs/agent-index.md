@@ -52,11 +52,11 @@ ENVA_POST_INSTALL_HOOK='bash scripts/post_install_smoke.sh' bash scripts/install
 
 | Command | Description | Interactive? |
 |---------|-------------|-------------|
-| `enva` | Start web configuration UI on `127.0.0.1:8080` | No |
+| `enva` | Start web UI (auto-opens browser; port from last used or config, default 8080) | No |
 | `enva <APP> [ARGS...]` | Launch configured `app_path` with forwarded args; if no args and no `app_path`, show the dry-run env list | Yes (password) |
 | `enva --cmd "<command>" <APP>` | Inject env vars and run an arbitrary shell command | Yes (password) |
-| `enva serve [--port N] [--host H]` | Start web UI (explicit alias) | No |
-| `enva update [--version <tag>] [--force]` | Fetch the matching release asset, verify download size and any provided digest, then replace the installed binary | No |
+| `enva serve [--port N] [--host H] [--no-open]` | Start web UI (explicit alias; `--no-open` skips browser) | No |
+| `enva update [--version <tag>] [--force]` | Fetch the matching release asset, verify download size and any provided digest, then replace the installed binary (also available in web UI Settings) | No |
 
 ### Vault management: `enva vault <subcommand>`
 
@@ -165,8 +165,9 @@ echo "my-vault-password" | enva --password-stdin --vault ./project.vault.json ba
 ### 4. Start web configuration UI
 
 ```bash
-enva                              # defaults to 127.0.0.1:8080
-enva serve --port 3000            # custom port
+enva                              # auto-opens browser; uses last port or config default
+enva serve --port 3000            # custom port, opens browser
+enva serve --port 3000 --no-open  # custom port, no browser
 ```
 
 ### 5. Import from .env file

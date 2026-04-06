@@ -394,6 +394,21 @@ fn update_error_response(error: update::UpdateError) -> (StatusCode, Json<ErrorR
     )
 }
 
+#[derive(Deserialize)]
+struct UpdateApplyRequest {
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    force: bool,
+}
+
+#[derive(Serialize)]
+struct UpdateApplyResponse {
+    updated_version: String,
+    restart_required: bool,
+    message: String,
+}
+
 fn transfer_error_response(error: transfer::TransferError) -> (StatusCode, Json<ErrorResponse>) {
     let status = match &error {
         transfer::TransferError::Vault(VaultError::AppNotFound(_))
@@ -496,6 +511,11 @@ fn ssh_host_response(host: &ResolvedSshHost) -> serde_json::Value {
         "source": if host.origin == SshHostOrigin::Managed { "web" } else { "ssh_config" },
         "editable": host.origin == SshHostOrigin::Managed
     })
+}
+
+#[derive(Serialize)]
+struct VersionResponse {
+    version: String,
 }
 
 #[derive(Serialize)]
@@ -664,11 +684,19 @@ fn default_ssh_port() -> u16 {
     22
 }
 
+async fn get_version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        version: format!("v{}", env!("CARGO_PKG_VERSION")),
+    })
+}
+
 pub fn api_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
+        .route("/version", get(get_version))
         .route("/update/check", get(check_for_updates))
+        .route("/update/apply", post(apply_update))
         .route("/paths/resolve", post(resolve_path))
         .route(
             "/session/settings",
@@ -764,6 +792,44 @@ async fn check_for_updates(
         })?
         .map(Json)
         .map_err(update_error_response)
+}
+
+async fn apply_update(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateApplyRequest>,
+) -> Result<Json<UpdateApplyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let version = body.version.clone();
+    let force = body.force;
+    let outcome = tokio::task::spawn_blocking(move || {
+        update::update_binary(version.as_deref(), force)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Update task failed: {error}"),
+            }),
+        )
+    })?
+    .map_err(update_error_response)?;
+
+    match outcome {
+        update::UpdateOutcome::Updated(result) => Ok(Json(UpdateApplyResponse {
+            updated_version: result.updated_version,
+            restart_required: true,
+            message: "Update applied successfully. Please restart the Enva server.".into(),
+        })),
+        update::UpdateOutcome::AlreadyUpToDate { current_version } => {
+            Ok(Json(UpdateApplyResponse {
+                updated_version: current_version,
+                restart_required: false,
+                message: "Already up to date.".into(),
+            }))
+        }
+    }
 }
 
 fn normalized_selection(values: &[String]) -> HashSet<String> {

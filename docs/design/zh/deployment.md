@@ -119,7 +119,7 @@ enva hook install
 #   - 不会重复添加 (幂等)
 
 # 步骤 4: 验证安装
-enva self-test
+enva vault self-test
 ```
 
 ### 3.3 Shell Hook 安装细节 (Linux)
@@ -189,7 +189,7 @@ enva hook install
 #   - 在 ~/.zshrc 末尾追加 source 行
 
 # 步骤 4: 验证安装
-enva self-test
+enva vault self-test
 ```
 
 ### 4.3 macOS 特殊处理
@@ -269,7 +269,7 @@ macOS 自 Catalina (10.15) 起默认 shell 为 **zsh**。安装脚本仅处理 z
 └──────┬───────┘
        ▼
 ┌──────────────┐
-│ run_self_test │  enva self-test
+│ run_self_test │  enva vault self-test
 └──────┬───────┘
        ▼ PASS → exit 0 / FAIL → exit 30
 ```
@@ -350,7 +350,7 @@ install_hooks() {
 # ── Self-test ─────────────────────────────────────
 run_self_test() {
     echo "Running self-test..."
-    enva self-test || { echo "ERROR: self-test failed"; exit 30; }
+    enva vault self-test || { echo "ERROR: self-test failed"; exit 30; }
     echo "Installation complete."
 }
 
@@ -370,7 +370,7 @@ run_self_test
 | 二进制安装 | 检测 `enva` 是否已在 PATH 中；已有则跳过 |
 | `enva init` | 检测 `~/.enva/config.yaml` 是否已存在，存在则跳过 |
 | `enva hook install` | `grep -q` 检测 rc 文件中是否已有 source 行，已有则跳过 |
-| `enva self-test` | 只读验证，不修改任何状态 |
+| `enva vault self-test` | 只读验证，不修改任何状态 |
 
 ---
 
@@ -418,7 +418,7 @@ rust-build (macos-14)      → 测试 + 构建 release 二进制
       - name: CLI smoke test
         run: |
           ./target/release/enva --help
-          ./target/release/enva self-test
+          ./target/release/enva vault self-test
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4

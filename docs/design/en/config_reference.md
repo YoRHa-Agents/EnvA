@@ -100,6 +100,8 @@ File path: `~/.enva/config.yaml`
 | `web.rate_limit.max_attempts` | int | `5` | Maximum failed password attempts before lockout | Optional; `>= 1` | `5` | L2 |
 | `web.rate_limit.lockout_seconds` | int | `300` | Lockout duration in seconds | Optional; `>= 0`; `0` disables lockout | `300` | L2 |
 
+> **Note:** When `enva` is run without a subcommand, it first checks `~/.enva/last_port` for the last successfully used port. If found, that port is used instead of `web.port`. The `enva serve -p <N>` command always uses the specified port. Both paths save the port to `~/.enva/last_port` for next time.
+
 ### 3.6 logging — Logging and Auditing
 
 | Field Path | Type | Default | Description | Validation | Example | Applicable Layers |
@@ -205,7 +207,7 @@ When no layer has set a given field, the following built-in defaults are used:
 | `shell.hooks.bash` | `"~/.secrets/hooks/secrets-hook.bash"` |
 | `shell.hooks.zsh` | `"~/.secrets/hooks/secrets-hook.zsh"` |
 | `web.host` | `"127.0.0.1"` |
-| `web.port` | `8080` |
+| `web.port` | `8080` (see Section 3.5 note on `~/.enva/last_port` persistence) |
 | `web.cors_origins` | `["http://localhost:*"]` |
 | `web.session_timeout` | `1800` |
 | `web.rate_limit.max_attempts` | `5` |
