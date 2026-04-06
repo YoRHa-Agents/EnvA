@@ -254,7 +254,7 @@ code, .mono { font-family:var(--font-mono); }
 .remote-actions .btn { flex:1; }
 
 /* ─── Main Content ────────────────────────────────────── */
-.main { padding:24px; overflow-y:auto; background:var(--bg-primary); }
+.main { padding:0 24px 24px; overflow-y:auto; background:var(--bg-primary); }
 .secrets-table { width:100%; border-collapse:separate; border-spacing:0; }
 .secrets-table th {
   text-align:left; padding:10px 14px; font-size:11px; font-weight:600; color:var(--text-muted);
@@ -2356,6 +2356,70 @@ function switchView(view) {
   renderTable();
 }
 
+/* ─── Drag-and-Drop Reordering (app view only) ───────── */
+let dragSrcRow = null;
+
+function onDragStart(e) {
+  dragSrcRow = this;
+  this.style.opacity = '0.4';
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', this.dataset.alias);
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const tr = e.target.closest('tr');
+  if (tr && tr !== dragSrcRow && tr.parentElement.tagName === 'TBODY') {
+    const rect = tr.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    tr.style.borderTop = e.clientY < midY ? '2px solid var(--accent)' : '';
+    tr.style.borderBottom = e.clientY >= midY ? '2px solid var(--accent)' : '';
+  }
+}
+
+function onDrop(e) {
+  e.preventDefault();
+  const targetRow = e.target.closest('tr');
+  if (!targetRow || targetRow === dragSrcRow) return;
+  const tbody = targetRow.parentElement;
+  const rect = targetRow.getBoundingClientRect();
+  if (e.clientY < rect.top + rect.height / 2) {
+    tbody.insertBefore(dragSrcRow, targetRow);
+  } else {
+    tbody.insertBefore(dragSrcRow, targetRow.nextSibling);
+  }
+  clearDragStyles();
+  saveSecretOrder();
+}
+
+function onDragEnd() {
+  this.style.opacity = '';
+  clearDragStyles();
+}
+
+function clearDragStyles() {
+  document.querySelectorAll('.secrets-table tbody tr').forEach(tr => {
+    tr.style.borderTop = '';
+    tr.style.borderBottom = '';
+  });
+}
+
+async function saveSecretOrder() {
+  const rows = document.querySelectorAll('.secrets-table tbody tr[data-alias]');
+  const ordered = Array.from(rows).map(tr => tr.dataset.alias);
+  if (!currentView || currentView === 'all' || ordered.length === 0) return;
+  try {
+    await apiFetch(`/apps/${encodeURIComponent(currentView)}/secrets/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secrets: ordered })
+    });
+  } catch (err) {
+    console.error('Failed to save order:', err);
+  }
+}
+
 /* ─── Table Rendering ─────────────────────────────────── */
 function renderTable() {
   const thead = document.getElementById('tableHead');
@@ -2364,7 +2428,7 @@ function renderTable() {
   const isApp = currentView !== 'all';
 
   if (isApp) {
-    thead.innerHTML = '<tr><th>Alias</th><th>Key</th><th>Injected As</th><th>Value</th><th>Tags</th><th>Updated</th><th>Actions</th></tr>';
+    thead.innerHTML = '<tr><th style="width:28px"></th><th>Alias</th><th>Key</th><th>Injected As</th><th>Value</th><th>Tags</th><th>Updated</th><th>Actions</th></tr>';
   } else {
     thead.innerHTML = '<tr><th>Alias</th><th>Key</th><th>Value</th><th>Tags</th><th>Used By</th><th>Updated</th><th>Actions</th></tr>';
   }
@@ -2456,7 +2520,12 @@ function renderTable() {
         <button class="delete-btn" onclick="deleteSecret('${esc(alias)}')" title="Delete">Delete</button>`;
     }
 
+    const gripCell = isApp
+      ? '<td style="width:28px;padding:8px 4px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);cursor:grab"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></td>'
+      : '';
+
     tr.innerHTML = `
+      ${gripCell}
       <td class="alias-cell"><span class="mono">${esc(alias)}</span></td>
       <td class="key-cell"><span class="mono">${esc(s.key)}</span></td>
       ${injectedCell}
@@ -2465,6 +2534,16 @@ function renderTable() {
       ${usedByCell}
       <td class="timestamp" title="${s.updated}">${timeAgo(s.updated)}</td>
       <td><div class="actions">${actionsHtml}</div></td>`;
+
+    if (isApp) {
+      tr.draggable = true;
+      tr.dataset.alias = alias;
+      tr.addEventListener('dragstart', onDragStart);
+      tr.addEventListener('dragover', onDragOver);
+      tr.addEventListener('drop', onDrop);
+      tr.addEventListener('dragend', onDragEnd);
+      tr.style.cursor = 'grab';
+    }
     tbody.appendChild(tr);
   }
 }

@@ -645,6 +645,11 @@ struct AppSecretsInput {
 }
 
 #[derive(Deserialize)]
+struct ReorderSecretsRequest {
+    secrets: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct ListQuery {
     app: Option<String>,
 }
@@ -726,6 +731,7 @@ pub fn api_router(state: Arc<AppState>) -> Router {
         .route("/apps/{app}", put(update_app).delete(delete_app))
         .route("/apps/{app}/secrets", get(get_app_secrets))
         .route("/apps/{app}/secrets", put(update_app_secrets))
+        .route("/apps/{app}/secrets/order", put(reorder_app_secrets))
         .route("/apps/{app}/secrets/{alias}", delete(unassign_secret))
         .with_state(state)
 }
@@ -2424,6 +2430,39 @@ async fn unassign_secret(
         )
     })?;
     Ok(Json(serde_json::json!({"unassigned": true})))
+}
+
+async fn reorder_app_secrets(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(app): Path<String>,
+    Json(body): Json<ReorderSecretsRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let _guard = state.vault_write_lock.lock().await;
+    let mut store = get_store(&state)?;
+    store.reorder_app_secrets(&app, &body.secrets).map_err(|e| {
+        let status = match &e {
+            VaultError::AppNotFound(_) => StatusCode::NOT_FOUND,
+            VaultError::AliasNotFound(_) => StatusCode::NOT_FOUND,
+            _ => StatusCode::BAD_REQUEST,
+        };
+        (
+            status,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+    store.save().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(serde_json::json!({ "app": app, "status": "reordered" })))
 }
 
 #[cfg(test)]
