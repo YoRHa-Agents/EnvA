@@ -131,7 +131,7 @@ and legacy whole-vault deploy/sync-from actions.
 
 ```bash
 enva update                              # update via CLI
-enva update --version v1.1.0             # specific version
+enva update --version v1.2.0             # specific version
 enva update --force                      # force reinstall or downgrade
 ```
 
@@ -237,7 +237,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 - **[docs/design/en/common_alignment.md](docs/design/en/common_alignment.md)** — Common-base reimplementation map against `RustWebAppCommon`
 - **[docs/design/en/migration_adoption.md](docs/design/en/migration_adoption.md)** — Tracked Enva adoption guide for common-side validation seams
 
-Last updated: `2026-04-06`
+Last updated: `2026-04-07`
 
 ## License
 

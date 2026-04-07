@@ -645,6 +645,11 @@ struct AppSecretsInput {
 }
 
 #[derive(Deserialize)]
+struct ReorderSecretsRequest {
+    secrets: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct ListQuery {
     app: Option<String>,
 }
@@ -726,6 +731,7 @@ pub fn api_router(state: Arc<AppState>) -> Router {
         .route("/apps/{app}", put(update_app).delete(delete_app))
         .route("/apps/{app}/secrets", get(get_app_secrets))
         .route("/apps/{app}/secrets", put(update_app_secrets))
+        .route("/apps/{app}/secrets/order", put(reorder_app_secrets))
         .route("/apps/{app}/secrets/{alias}", delete(unassign_secret))
         .with_state(state)
 }
@@ -802,19 +808,18 @@ async fn apply_update(
     require_auth(&state, &headers)?;
     let version = body.version.clone();
     let force = body.force;
-    let outcome = tokio::task::spawn_blocking(move || {
-        update::update_binary(version.as_deref(), force)
-    })
-    .await
-    .map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Update task failed: {error}"),
-            }),
-        )
-    })?
-    .map_err(update_error_response)?;
+    let outcome =
+        tokio::task::spawn_blocking(move || update::update_binary(version.as_deref(), force))
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Update task failed: {error}"),
+                    }),
+                )
+            })?
+            .map_err(update_error_response)?;
 
     match outcome {
         update::UpdateOutcome::Updated(result) => Ok(Json(UpdateApplyResponse {
@@ -2426,6 +2431,43 @@ async fn unassign_secret(
     Ok(Json(serde_json::json!({"unassigned": true})))
 }
 
+async fn reorder_app_secrets(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(app): Path<String>,
+    Json(body): Json<ReorderSecretsRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_auth(&state, &headers)?;
+    let _guard = state.vault_write_lock.lock().await;
+    let mut store = get_store(&state)?;
+    store
+        .reorder_app_secrets(&app, &body.secrets)
+        .map_err(|e| {
+            let status = match &e {
+                VaultError::AppNotFound(_) => StatusCode::NOT_FOUND,
+                VaultError::AliasNotFound(_) => StatusCode::NOT_FOUND,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            (
+                status,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+    store.save().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(
+        serde_json::json!({ "app": app, "status": "reordered" }),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3321,6 +3363,83 @@ mod tests {
         let req = authed_request("GET", "/api/apps/nonexistent/secrets", &token, None);
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn reorder_app_secrets_updates_binding_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("reorder-app-secrets.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store.set("first", "FIRST_KEY", "first", "", &[]).unwrap();
+        store
+            .set("second", "SECOND_KEY", "second", "", &[])
+            .unwrap();
+        store.create_app("myapp", "", "").unwrap();
+        store.assign("myapp", "first", None).unwrap();
+        store.assign("myapp", "second", None).unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let reorder = authed_request(
+            "PUT",
+            "/api/apps/myapp/secrets/order",
+            &token,
+            Some(r#"{"secrets":["second","first"]}"#),
+        );
+        let reorder_resp = router.clone().oneshot(reorder).await.unwrap();
+        assert_eq!(reorder_resp.status(), StatusCode::OK);
+
+        let req = authed_request("GET", "/api/apps/myapp/secrets", &token, None);
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let secrets = json["secrets"].as_array().unwrap();
+        assert_eq!(secrets[0]["alias"], "second");
+        assert_eq!(secrets[1]["alias"], "first");
+    }
+
+    #[tokio::test]
+    async fn export_secrets_env_resolves_references_in_assignment_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vp = tmp.path().join("export-app-env-order.vault.json");
+        let vps = vp.to_str().unwrap().to_string();
+
+        let mut store = VaultStore::create(&vps, "testpass1234", Some(fast_kdf())).unwrap();
+        store
+            .set("early-zeta", "ZZZ", "root-value", "", &[])
+            .unwrap();
+        store
+            .set("late-alpha", "AAA", "$ZZZ/suffix", "", &[])
+            .unwrap();
+        store.create_app("chainapp", "", "").unwrap();
+        store.assign("chainapp", "early-zeta", None).unwrap();
+        store.assign("chainapp", "late-alpha", None).unwrap();
+        store.save().unwrap();
+
+        let (router, _) = build_app(&vps);
+        let token = get_token(&router, "testpass1234").await;
+
+        let req = authed_request(
+            "GET",
+            "/api/secrets/export?app=chainapp&format=env",
+            &token,
+            None,
+        );
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(header::CONTENT_TYPE).unwrap(),
+            "text/plain; charset=utf-8"
+        );
+
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let exported = std::str::from_utf8(&body).unwrap().trim();
+        assert_eq!(exported, "ZZZ=root-value\nAAA=root-value/suffix");
     }
 
     #[tokio::test]

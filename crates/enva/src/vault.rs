@@ -720,6 +720,51 @@ impl VaultStore {
         Ok(())
     }
 
+    /// Reorder the secrets list for an app. Aliases in `ordered_aliases` are
+    /// placed first (in order); any existing secrets not mentioned are appended
+    /// afterwards, preserving their relative order.
+    pub fn reorder_app_secrets(
+        &mut self,
+        app: &str,
+        ordered_aliases: &[String],
+    ) -> Result<(), VaultError> {
+        let ad = self
+            .data
+            .apps
+            .get_mut(app)
+            .ok_or_else(|| VaultError::AppNotFound(app.into()))?;
+
+        let mut new_order = Vec::with_capacity(ordered_aliases.len());
+        for alias in ordered_aliases {
+            let secret_ref = ad
+                .secrets
+                .iter()
+                .find(|r| {
+                    *r == alias
+                        || self
+                            .data
+                            .secrets
+                            .get(alias)
+                            .map(|e| &e.id == *r)
+                            .unwrap_or(false)
+                })
+                .cloned()
+                .ok_or_else(|| VaultError::AliasNotFound(alias.clone()))?;
+            if !new_order.contains(&secret_ref) {
+                new_order.push(secret_ref);
+            }
+        }
+
+        for existing_ref in &ad.secrets {
+            if !new_order.contains(existing_ref) {
+                new_order.push(existing_ref.clone());
+            }
+        }
+
+        ad.secrets = new_order;
+        Ok(())
+    }
+
     pub fn get_app_secret_bindings(&self, app: &str) -> Result<Vec<AppSecretBinding>, VaultError> {
         let ad = self
             .data
@@ -743,6 +788,7 @@ impl VaultStore {
         Ok(bindings)
     }
 
+    #[allow(dead_code)] // Kept for direct resolved lookups in tests and future call sites.
     pub fn get_app_secrets(&self, app: &str) -> Result<BTreeMap<String, String>, VaultError> {
         let ad = self
             .data
@@ -757,6 +803,25 @@ impl VaultStore {
                 let plaintext = vault_crypto::decrypt_value(&self.enc_key, &entry.value, alias)
                     .map_err(|e| VaultError::Crypto(e.to_string()))?;
                 result.insert(env_name.clone(), plaintext);
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn get_app_secrets_ordered(&self, app: &str) -> Result<Vec<(String, String)>, VaultError> {
+        let ad = self
+            .data
+            .apps
+            .get(app)
+            .ok_or_else(|| VaultError::AppNotFound(app.into()))?;
+        let mut result = Vec::new();
+        for secret_ref in &ad.secrets {
+            if let Some((alias, entry)) = self.find_secret_by_ref(secret_ref) {
+                let env_name =
+                    Self::app_override_for_secret(ad, alias, &entry.id).unwrap_or(&entry.key);
+                let plaintext = vault_crypto::decrypt_value(&self.enc_key, &entry.value, alias)
+                    .map_err(|e| VaultError::Crypto(e.to_string()))?;
+                result.push((env_name.clone(), plaintext));
             }
         }
         Ok(result)

@@ -332,6 +332,70 @@ fn resolve_launch_app_path(
     Ok(None)
 }
 
+pub(crate) fn resolve_ordered_env_pairs(ordered: Vec<(String, String)>) -> Vec<(String, String)> {
+    let mut resolved: BTreeMap<String, String> = BTreeMap::new();
+    let mut ordered_pairs = Vec::with_capacity(ordered.len());
+    for (key, raw_value) in ordered {
+        let value = resolve_var_refs(&raw_value, &resolved);
+        resolved.insert(key.clone(), value.clone());
+        ordered_pairs.push((key, value));
+    }
+    ordered_pairs
+}
+
+pub(crate) fn interpolate_env(ordered: Vec<(String, String)>) -> BTreeMap<String, String> {
+    resolve_ordered_env_pairs(ordered).into_iter().collect()
+}
+
+pub(crate) fn resolve_var_refs(input: &str, env: &BTreeMap<String, String>) -> String {
+    let mut result = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] == b'$' {
+            result.push('$');
+            i += 2;
+        } else if bytes[i] == b'$' {
+            i += 1;
+            if i < bytes.len() && bytes[i] == b'{' {
+                i += 1;
+                let start = i;
+                while i < bytes.len() && bytes[i] != b'}' {
+                    i += 1;
+                }
+                let var_name = &input[start..i];
+                if i < bytes.len() {
+                    i += 1;
+                }
+                if let Some(val) = env.get(var_name) {
+                    result.push_str(val);
+                } else if let Ok(val) = std::env::var(var_name) {
+                    result.push_str(&val);
+                }
+            } else {
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                let var_name = &input[start..i];
+                if !var_name.is_empty() {
+                    if let Some(val) = env.get(var_name) {
+                        result.push_str(val);
+                    } else if let Ok(val) = std::env::var(var_name) {
+                        result.push_str(&val);
+                    }
+                } else {
+                    result.push('$');
+                }
+            }
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    result
+}
+
 fn resolve_app_env_and_path(
     cli: &Cli,
     app_name: &str,
@@ -339,7 +403,8 @@ fn resolve_app_env_and_path(
     let vp = resolve_vault_path(cli)?;
     let pw = get_password(cli)?;
     let store = vault::VaultStore::load(&vp, &pw)?;
-    let injected = store.get_app_secrets(app_name)?;
+    let ordered = store.get_app_secrets_ordered(app_name)?;
+    let injected = interpolate_env(ordered);
 
     let cfg = config::ConfigLoader::load(cli.config.as_deref(), cli.env.as_deref());
     let override_system = cfg
@@ -1179,5 +1244,72 @@ mod tests {
             .ok()
             .and_then(|s| s.trim().parse().ok());
         assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn resolve_var_refs_substitutes_known_var() {
+        let mut env = BTreeMap::new();
+        env.insert("HOST".into(), "localhost".into());
+        assert_eq!(
+            resolve_var_refs("http://$HOST:8080", &env),
+            "http://localhost:8080"
+        );
+    }
+
+    #[test]
+    fn resolve_var_refs_handles_braced_syntax() {
+        let mut env = BTreeMap::new();
+        env.insert("DB".into(), "postgres".into());
+        assert_eq!(resolve_var_refs("${DB}://host", &env), "postgres://host");
+    }
+
+    #[test]
+    fn resolve_var_refs_preserves_unknown_vars_as_empty() {
+        let env = BTreeMap::new();
+        assert_eq!(
+            resolve_var_refs("prefix-$UNKNOWN-suffix", &env),
+            "prefix--suffix"
+        );
+    }
+
+    #[test]
+    fn resolve_var_refs_escaped_dollar_preserved() {
+        let env = BTreeMap::new();
+        assert_eq!(resolve_var_refs("cost is \\$5", &env), "cost is $5");
+    }
+
+    #[test]
+    fn resolve_var_refs_bare_dollar_preserved() {
+        let env = BTreeMap::new();
+        assert_eq!(resolve_var_refs("price $", &env), "price $");
+    }
+
+    #[test]
+    fn interpolate_env_chains_ordered_vars() {
+        let ordered = vec![
+            ("A".into(), "hello".into()),
+            ("B".into(), "$A world".into()),
+            ("C".into(), "${B}!".into()),
+        ];
+        let result = interpolate_env(ordered);
+        assert_eq!(result["A"], "hello");
+        assert_eq!(result["B"], "hello world");
+        assert_eq!(result["C"], "hello world!");
+    }
+
+    #[test]
+    fn resolve_ordered_env_pairs_preserves_assignment_order() {
+        let ordered = vec![
+            ("ZZZ".into(), "hello".into()),
+            ("AAA".into(), "$ZZZ world".into()),
+        ];
+        let result = resolve_ordered_env_pairs(ordered);
+        assert_eq!(
+            result,
+            vec![
+                ("ZZZ".to_string(), "hello".to_string()),
+                ("AAA".to_string(), "hello world".to_string()),
+            ]
+        );
     }
 }
