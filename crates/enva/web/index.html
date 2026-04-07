@@ -131,7 +131,7 @@ code, .mono { font-family:var(--font-mono); }
 
 /* ─── App Shell ───────────────────────────────────────── */
 .app { display:none; height:100vh; }
-.app.active { display:grid; grid-template-columns:260px 1fr; grid-template-rows:56px 1fr; }
+.app.active { display:grid; grid-template-columns:260px 1fr; grid-template-rows:auto 1fr; }
 
 /* ─── Sidebar ─────────────────────────────────────────── */
 .sidebar {
@@ -184,6 +184,7 @@ code, .mono { font-family:var(--font-mono); }
 /* ─── Topbar ──────────────────────────────────────────── */
 .topbar {
   display:flex; align-items:center; justify-content:space-between; padding:0 24px;
+  min-height:56px;
   background:var(--bg-secondary); border-bottom:1px solid var(--border);
 }
 .topbar-left { display:flex; align-items:center; gap:16px; }
@@ -945,7 +946,7 @@ code, .mono { font-family:var(--font-mono); }
       </div>
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Self Update</div>
-        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.1.0</div>
+        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.2.0</div>
         <button class="btn btn-outline btn-sm" onclick="checkForUpdates()">Check for Updates</button>
       </div>
     </div>
@@ -1203,7 +1204,7 @@ const SECRETS = {};
 const APPS = {};
 
 const SSH_HOSTS = {};
-let APP_VERSION = 'v1.1.0';
+let APP_VERSION = 'v1.2.0';
 
 let currentView = 'all';
 let revealedValues = new Set();
@@ -2390,7 +2391,8 @@ function onDrop(e) {
     tbody.insertBefore(dragSrcRow, targetRow.nextSibling);
   }
   clearDragStyles();
-  saveSecretOrder();
+  const ordered = Array.from(tbody.querySelectorAll('tr[data-alias]')).map(tr => tr.dataset.alias);
+  saveSecretOrder(ordered);
 }
 
 function onDragEnd() {
@@ -2405,18 +2407,29 @@ function clearDragStyles() {
   });
 }
 
-async function saveSecretOrder() {
-  const rows = document.querySelectorAll('.secrets-table tbody tr[data-alias]');
-  const ordered = Array.from(rows).map(tr => tr.dataset.alias);
+async function saveSecretOrder(ordered) {
+  if (!Array.isArray(ordered)) {
+    const rows = document.querySelectorAll('.secrets-table tbody tr[data-alias]');
+    ordered = Array.from(rows).map(tr => tr.dataset.alias);
+  }
   if (!currentView || currentView === 'all' || ordered.length === 0) return;
+  const app = APPS[currentView];
+  if (!app || ordered.length !== app.secrets.length) {
+    toast('Clear the search filter before reordering.', 'error');
+    renderTable();
+    return;
+  }
   try {
     await apiFetch(`/apps/${encodeURIComponent(currentView)}/secrets/order`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ secrets: ordered })
     });
+    app.secrets = ordered.slice();
   } catch (err) {
     console.error('Failed to save order:', err);
+    toast('Failed to save secret order.', 'error');
+    loadAppsFromAPI();
   }
 }
 
@@ -2426,6 +2439,8 @@ function renderTable() {
   const tbody = document.getElementById('tableBody');
   const search = document.getElementById('searchInput').value.toLowerCase();
   const isApp = currentView !== 'all';
+  const canReorder = isApp && !search;
+  const reorderHint = canReorder ? 'Drag to reorder secrets' : 'Clear search to reorder secrets';
 
   if (isApp) {
     thead.innerHTML = '<tr><th style="width:28px"></th><th>Alias</th><th>Key</th><th>Injected As</th><th>Value</th><th>Tags</th><th>Updated</th><th>Actions</th></tr>';
@@ -2521,7 +2536,7 @@ function renderTable() {
     }
 
     const gripCell = isApp
-      ? '<td style="width:28px;padding:8px 4px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);cursor:grab"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></td>'
+      ? `<td style="width:28px;padding:8px 4px"><span title="${reorderHint}" style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);cursor:${canReorder ? 'grab' : 'not-allowed'};opacity:${canReorder ? '1' : '0.45'}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg></span></td>`
       : '';
 
     tr.innerHTML = `
@@ -2536,13 +2551,15 @@ function renderTable() {
       <td><div class="actions">${actionsHtml}</div></td>`;
 
     if (isApp) {
-      tr.draggable = true;
       tr.dataset.alias = alias;
-      tr.addEventListener('dragstart', onDragStart);
-      tr.addEventListener('dragover', onDragOver);
-      tr.addEventListener('drop', onDrop);
-      tr.addEventListener('dragend', onDragEnd);
-      tr.style.cursor = 'grab';
+      tr.draggable = canReorder;
+      if (canReorder) {
+        tr.addEventListener('dragstart', onDragStart);
+        tr.addEventListener('dragover', onDragOver);
+        tr.addEventListener('drop', onDrop);
+        tr.addEventListener('dragend', onDragEnd);
+        tr.style.cursor = 'grab';
+      }
     }
     tbody.appendChild(tr);
   }

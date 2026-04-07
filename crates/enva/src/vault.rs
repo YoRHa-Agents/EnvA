@@ -788,6 +788,7 @@ impl VaultStore {
         Ok(bindings)
     }
 
+    #[allow(dead_code)] // Kept for direct resolved lookups in tests and future call sites.
     pub fn get_app_secrets(&self, app: &str) -> Result<BTreeMap<String, String>, VaultError> {
         let ad = self
             .data

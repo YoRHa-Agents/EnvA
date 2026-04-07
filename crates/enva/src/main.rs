@@ -332,16 +332,22 @@ fn resolve_launch_app_path(
     Ok(None)
 }
 
-fn interpolate_env(ordered: Vec<(String, String)>) -> BTreeMap<String, String> {
+pub(crate) fn resolve_ordered_env_pairs(ordered: Vec<(String, String)>) -> Vec<(String, String)> {
     let mut resolved: BTreeMap<String, String> = BTreeMap::new();
+    let mut ordered_pairs = Vec::with_capacity(ordered.len());
     for (key, raw_value) in ordered {
         let value = resolve_var_refs(&raw_value, &resolved);
-        resolved.insert(key, value);
+        resolved.insert(key.clone(), value.clone());
+        ordered_pairs.push((key, value));
     }
-    resolved
+    ordered_pairs
 }
 
-fn resolve_var_refs(input: &str, env: &BTreeMap<String, String>) -> String {
+pub(crate) fn interpolate_env(ordered: Vec<(String, String)>) -> BTreeMap<String, String> {
+    resolve_ordered_env_pairs(ordered).into_iter().collect()
+}
+
+pub(crate) fn resolve_var_refs(input: &str, env: &BTreeMap<String, String>) -> String {
     let mut result = String::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut i = 0;
@@ -1289,5 +1295,21 @@ mod tests {
         assert_eq!(result["A"], "hello");
         assert_eq!(result["B"], "hello world");
         assert_eq!(result["C"], "hello world!");
+    }
+
+    #[test]
+    fn resolve_ordered_env_pairs_preserves_assignment_order() {
+        let ordered = vec![
+            ("ZZZ".into(), "hello".into()),
+            ("AAA".into(), "$ZZZ world".into()),
+        ];
+        let result = resolve_ordered_env_pairs(ordered);
+        assert_eq!(
+            result,
+            vec![
+                ("ZZZ".to_string(), "hello".to_string()),
+                ("AAA".to_string(), "hello world".to_string()),
+            ]
+        );
     }
 }

@@ -1,4 +1,7 @@
-use crate::vault::{AppInfo, SecretInfo, VaultError, VaultStore};
+use crate::{
+    resolve_ordered_env_pairs,
+    vault::{AppInfo, SecretInfo, VaultError, VaultStore},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -239,8 +242,8 @@ fn resolved_pairs(
     app: Option<&str>,
 ) -> Result<Vec<(String, String)>, TransferError> {
     if let Some(app_name) = app {
-        let resolved = store.get_app_secrets(app_name)?;
-        return Ok(resolved.into_iter().collect());
+        let ordered = store.get_app_secrets_ordered(app_name)?;
+        return Ok(resolve_ordered_env_pairs(ordered));
     }
 
     let mut pairs = Vec::new();

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-07
+
+### Added
+
+- **Environment variable interpolation**: Secret values can now reference earlier secrets using `$VAR` or `${VAR}` syntax. Variables are resolved in the app's secret list order during injection — if A=aaa and B=$A, then B resolves to aaa. Unknown references resolve to empty string; `\$` escapes a literal dollar sign. Falls back to OS environment variables.
+- **Secret reordering**: New `PUT /api/apps/{app}/secrets/order` endpoint to reorder secrets within an app. The web UI app view now includes drag handles for reordering secrets via drag-and-drop — order is saved automatically.
+- **Drag-and-drop UI**: When viewing a specific app's secrets, a grip handle appears on each row. Drag rows to reorder; the new order is persisted immediately via the API.
+
+### Fixed
+
+- **Table header spacing**: Removed extra top padding on the secrets table container so the column headers sit flush against the toolbar.
+
 ## [1.1.0] - 2026-04-06
 
 ### Added
@@ -179,7 +191,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.2.0
 [1.1.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.1.0
 [1.0.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.0.0
 [0.6.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v0.6.1
