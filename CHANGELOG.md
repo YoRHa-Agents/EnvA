@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-07
+
+### Added
+
+- **Column sorting**: Click any column header (Alias, Key, Tags, Used By, Updated) in the All Secrets view to sort ascending/descending. Sort state persists across sessions via localStorage. Includes keyboard accessibility (Enter/Space to toggle) and ARIA sort attributes.
+- **Tag checkbox filter**: New "Tags" filter button in the toolbar opens a dropdown with checkboxes for each tag. Supports AND/OR mode toggle. Filter state persists across sessions. Shows active filter count badge. Close with Escape or outside click.
+
+### Changed
+
+- **UI-Pro polish**: Sort headers show animated arrow indicators, tag filter dropdown has smooth open/close transitions, all interactive elements have visible focus states per WCAG guidelines.
+
 ## [1.2.0] - 2026-04-07
 
 ### Added
