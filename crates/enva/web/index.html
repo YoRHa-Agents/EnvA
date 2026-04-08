@@ -525,10 +525,20 @@ code, .mono { font-family:var(--font-mono); }
 .selection-actions button {
   padding:6px 10px; font-size:11px; min-height:auto;
 }
+.selection-filter-bar {
+  display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;
+}
+.selection-filter-bar .search-box {
+  flex:1 1 220px; width:auto; min-width:220px;
+}
+.selection-filter-bar .tag-filter-wrap { flex-shrink:0; }
 .selection-summary { font-size:11px; color:var(--text-muted); }
 .selection-list {
   max-height:180px; overflow:auto; border:1px solid var(--border);
   border-radius:var(--radius); background:var(--bg-input);
+}
+.selection-empty {
+  padding:16px 12px; color:var(--text-muted); font-size:12px; text-align:center;
 }
 .selection-row {
   display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
@@ -538,6 +548,10 @@ code, .mono { font-family:var(--font-mono); }
 .selection-row input[type="checkbox"] { width:auto; accent-color:var(--accent); cursor:pointer; }
 .selection-row .mono { font-size:12px; }
 .selection-row .selection-meta { color:var(--text-muted); font-size:11px; }
+.selection-meta-line {
+  display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;
+}
+.selection-meta-line .tag-badge { margin-right:0; }
 .conflict-cell { min-width:220px; }
 .conflict-message { font-size:11px; color:var(--text-secondary); }
 .conflict-message.error { color:var(--danger); }
@@ -953,6 +967,20 @@ code, .mono { font-family:var(--font-mono); }
           </div>
           <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
         </div>
+        <div class="selection-filter-bar">
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="exportSearchInput" placeholder="Search aliases, keys, tags..." oninput="handleExportSearchInput()">
+          </div>
+          <div class="tag-filter-wrap" id="exportTagFilterWrap">
+            <button class="tag-filter-btn" id="exportTagFilterBtn" type="button" onclick="toggleExportTagFilter()" aria-haspopup="true" aria-expanded="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <span data-i18n="filterTags">Tags</span>
+              <span class="filter-count" id="exportTagFilterCount" style="display:none">0</span>
+            </button>
+            <div class="tag-filter-dropdown" id="exportTagFilterDropdown" role="listbox" aria-label="Filter export targets by tags"></div>
+          </div>
+        </div>
         <div class="selection-list" id="exportSelectionList"></div>
       </div>
       <div class="field-group">
@@ -1026,7 +1054,7 @@ code, .mono { font-family:var(--font-mono); }
       </div>
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Self Update</div>
-        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.2.0</div>
+        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.4.0</div>
         <button class="btn btn-outline btn-sm" onclick="checkForUpdates()">Check for Updates</button>
       </div>
     </div>
@@ -1284,7 +1312,7 @@ const SECRETS = {};
 const APPS = {};
 
 const SSH_HOSTS = {};
-let APP_VERSION = 'v1.3.0';
+let APP_VERSION = 'v1.4.0';
 
 let currentView = 'all';
 let revealedValues = new Set();
@@ -1295,6 +1323,9 @@ let pendingImportBundle = null;
 let pendingImportFile = null;
 let pendingImportText = '';
 let exportSelectionAliases = new Set();
+let exportSearchQuery = '';
+let exportTagFilters = new Set();
+let exportTagFilterMode = 'or';
 let confirmCallback = null;
 let authToken = null;
 let selectedRemoteHost = null;
@@ -2651,6 +2682,10 @@ document.addEventListener('click', function(e) {
       btn.setAttribute('aria-expanded', 'false');
     }
   }
+  const exportWrap = document.getElementById('exportTagFilterWrap');
+  if (exportWrap && !exportWrap.contains(e.target)) {
+    closeExportTagFilter();
+  }
 });
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
@@ -2661,6 +2696,7 @@ document.addEventListener('keydown', function(e) {
       btn.setAttribute('aria-expanded', 'false');
       btn.focus();
     }
+    closeExportTagFilter(true);
   }
 });
 
@@ -3716,6 +3752,165 @@ function aliasesForExportScope(scope) {
   return APPS[scope] ? APPS[scope].secrets.filter(alias => SECRETS[alias]).slice() : [];
 }
 
+function resetExportFilters() {
+  exportSearchQuery = '';
+  exportTagFilters.clear();
+  exportTagFilterMode = 'or';
+  const searchInput = document.getElementById('exportSearchInput');
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  updateExportTagFilterCount();
+  closeExportTagFilter();
+}
+
+function exportTagsForScope(scope) {
+  const counts = {};
+  for (const alias of aliasesForExportScope(scope)) {
+    const secret = SECRETS[alias];
+    if (!secret) {
+      continue;
+    }
+    for (const tag of secret.tags || []) {
+      counts[tag] = (counts[tag] || 0) + 1;
+    }
+  }
+  return Object.entries(counts).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+}
+
+function syncExportTagFiltersToScope(scope) {
+  const availableTags = new Set(exportTagsForScope(scope).map(([tag]) => tag));
+  exportTagFilters = new Set([...exportTagFilters].filter(tag => availableTags.has(tag)));
+  updateExportTagFilterCount();
+}
+
+function filterExportAliasesBySearch(aliases, scope) {
+  if (!exportSearchQuery) {
+    return aliases;
+  }
+  const app = scope !== 'all' ? APPS[scope] : null;
+  return aliases.filter(alias => {
+    const secret = SECRETS[alias];
+    if (!secret) {
+      return false;
+    }
+    const exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    return alias.toLowerCase().includes(exportSearchQuery)
+      || exportedKey.toLowerCase().includes(exportSearchQuery)
+      || (secret.description || '').toLowerCase().includes(exportSearchQuery)
+      || (secret.tags || []).some(tag => tag.toLowerCase().includes(exportSearchQuery));
+  });
+}
+
+function filterExportAliasesByTags(aliases) {
+  if (exportTagFilters.size === 0) {
+    return aliases;
+  }
+  return aliases.filter(alias => {
+    const tags = SECRETS[alias] ? (SECRETS[alias].tags || []) : [];
+    if (exportTagFilterMode === 'and') {
+      return [...exportTagFilters].every(tag => tags.includes(tag));
+    }
+    return tags.some(tag => exportTagFilters.has(tag));
+  });
+}
+
+function filteredAliasesForExportScope(scope) {
+  const searchFiltered = filterExportAliasesBySearch(aliasesForExportScope(scope), scope);
+  return filterExportAliasesByTags(searchFiltered);
+}
+
+function closeExportTagFilter(focusButton = false) {
+  const dropdown = document.getElementById('exportTagFilterDropdown');
+  const button = document.getElementById('exportTagFilterBtn');
+  if (!dropdown || !button || !dropdown.classList.contains('open')) {
+    return;
+  }
+  dropdown.classList.remove('open');
+  button.setAttribute('aria-expanded', 'false');
+  if (focusButton) {
+    button.focus();
+  }
+}
+
+function updateExportTagFilterCount() {
+  const badge = document.getElementById('exportTagFilterCount');
+  if (!badge) {
+    return;
+  }
+  const count = exportTagFilters.size;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? '' : 'none';
+}
+
+function handleExportSearchInput() {
+  exportSearchQuery = document.getElementById('exportSearchInput').value.trim().toLowerCase();
+  renderExportSelectionList();
+}
+
+function toggleExportTagFilter() {
+  const dropdown = document.getElementById('exportTagFilterDropdown');
+  const button = document.getElementById('exportTagFilterBtn');
+  const isOpen = dropdown.classList.contains('open');
+  if (isOpen) {
+    closeExportTagFilter();
+    return;
+  }
+  buildExportTagFilterDropdown();
+  dropdown.classList.add('open');
+  button.setAttribute('aria-expanded', 'true');
+}
+
+function buildExportTagFilterDropdown() {
+  const dropdown = document.getElementById('exportTagFilterDropdown');
+  const scope = document.getElementById('exportScope').value;
+  const tags = exportTagsForScope(scope);
+  if (tags.length === 0) {
+    dropdown.innerHTML = '<div class="selection-empty">No tags found in this scope.</div>';
+    return;
+  }
+
+  let html = '<div class="tag-filter-header"><span>Filter by Tags</span>';
+  html += '<button class="tag-filter-clear" type="button" onclick="clearExportTagFilters()">Clear</button></div>';
+  html += '<div class="tag-filter-mode">';
+  html += `<button type="button" class="${exportTagFilterMode === 'or' ? 'active' : ''}" onclick="setExportTagMode('or')">Any (OR)</button>`;
+  html += `<button type="button" class="${exportTagFilterMode === 'and' ? 'active' : ''}" onclick="setExportTagMode('and')">All (AND)</button>`;
+  html += '</div>';
+  for (const [tag, count] of tags) {
+    const checked = exportTagFilters.has(tag) ? 'checked' : '';
+    const cls = tagClass(tag);
+    html += `<label class="tag-filter-item">
+      <input type="checkbox" ${checked} onchange="onExportTagFilterChange('${esc(tag)}', this.checked)">
+      <span class="tag-badge ${cls}">${esc(tag)}</span>
+      <span class="tag-filter-count">${count}</span>
+    </label>`;
+  }
+  dropdown.innerHTML = html;
+}
+
+function onExportTagFilterChange(tag, checked) {
+  if (checked) {
+    exportTagFilters.add(tag);
+  } else {
+    exportTagFilters.delete(tag);
+  }
+  updateExportTagFilterCount();
+  renderExportSelectionList();
+}
+
+function clearExportTagFilters() {
+  exportTagFilters.clear();
+  updateExportTagFilterCount();
+  buildExportTagFilterDropdown();
+  renderExportSelectionList();
+}
+
+function setExportTagMode(mode) {
+  exportTagFilterMode = mode;
+  buildExportTagFilterDropdown();
+  renderExportSelectionList();
+}
+
 function syncExportSelections(reset = false) {
   const aliases = aliasesForExportScope(document.getElementById('exportScope').value);
   if (reset) {
@@ -3728,21 +3923,31 @@ function syncExportSelections(reset = false) {
 
 function renderExportSelectionList() {
   const scope = document.getElementById('exportScope').value;
-  const aliases = syncExportSelections(false);
+  const allAliases = syncExportSelections(false);
+  const visibleAliases = filteredAliasesForExportScope(scope);
   const list = document.getElementById('exportSelectionList');
   const summary = document.getElementById('exportSelectionSummary');
   list.innerHTML = '';
 
-  if (aliases.length === 0) {
-    list.innerHTML = '<div class="selection-row"><span class="selection-meta">No secrets available in this scope.</span></div>';
+  if (allAliases.length === 0) {
+    list.innerHTML = '<div class="selection-empty">No secrets available in this scope.</div>';
     summary.textContent = 'No secrets available.';
     return;
   }
 
+  if (visibleAliases.length === 0) {
+    list.innerHTML = '<div class="selection-empty">No secrets match the current filters.</div>';
+    summary.textContent = `${exportSelectionAliases.size} selected of ${allAliases.length} in scope`;
+    return;
+  }
+
   const app = scope !== 'all' ? APPS[scope] : null;
-  for (const alias of aliases) {
+  for (const alias of visibleAliases) {
     const secret = SECRETS[alias];
     const exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    const tagsHtml = (secret.tags || [])
+      .map(tag => `<span class="tag-badge ${tagClass(tag)}">${esc(tag)}</span>`)
+      .join('');
     const row = document.createElement('div');
     row.className = 'selection-row';
     row.innerHTML = `
@@ -3750,17 +3955,27 @@ function renderExportSelectionList() {
       <div>
         <div class="mono">${esc(alias)}</div>
         <div class="selection-meta">${esc(exportedKey)}</div>
+        ${tagsHtml ? `<div class="selection-meta-line">${tagsHtml}</div>` : ''}
       </div>
       <div class="selection-meta">${esc(secret.updated || '')}</div>`;
     list.appendChild(row);
   }
 
-  summary.textContent = `${exportSelectionAliases.size} selected of ${aliases.length}`;
+  const selectedVisibleCount = visibleAliases.filter(alias => exportSelectionAliases.has(alias)).length;
+  summary.textContent = visibleAliases.length === allAliases.length
+    ? `${exportSelectionAliases.size} selected of ${allAliases.length}`
+    : `${selectedVisibleCount} selected of ${visibleAliases.length} shown (${exportSelectionAliases.size} total selected of ${allAliases.length})`;
 }
 
 function setAllExportRows(selected) {
-  const aliases = aliasesForExportScope(document.getElementById('exportScope').value);
-  exportSelectionAliases = selected ? new Set(aliases) : new Set();
+  const aliases = filteredAliasesForExportScope(document.getElementById('exportScope').value);
+  for (const alias of aliases) {
+    if (selected) {
+      exportSelectionAliases.add(alias);
+    } else {
+      exportSelectionAliases.delete(alias);
+    }
+  }
   renderExportSelectionList();
   updateExportPreview();
 }
@@ -3835,11 +4050,17 @@ function doExport() {
     scopeSel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
   }
   if (currentView !== 'all') scopeSel.value = currentView;
+  resetExportFilters();
   syncExportSelections(true);
+  syncExportTagFiltersToScope(scopeSel.value);
   renderExportSelectionList();
   updateExportPreview();
   scopeSel.onchange = () => {
     syncExportSelections(true);
+    syncExportTagFiltersToScope(scopeSel.value);
+    if (document.getElementById('exportTagFilterDropdown').classList.contains('open')) {
+      buildExportTagFilterDropdown();
+    }
     renderExportSelectionList();
     updateExportPreview();
   };
