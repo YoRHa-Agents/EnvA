@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-04-08
+
+### Added
+
+- **Export tag filter**: The export modal now includes tag-based filtering with Any/All matching so operators can isolate the subset they want to export without scrolling the full scope.
+- **Export keyword search**: The export modal now supports keyword search across aliases, injected keys, descriptions, and tags to locate export targets faster.
+
+### Changed
+
+- **Filtered export bulk actions**: Select/Clear All now applies to the visible filtered export list while preserving any selections outside the current filter, and the GitHub Pages demo keeps the same control surface as the embedded UI.
+
+## [1.3.0] - 2026-04-07
+
+### Added
+
+- **Column sorting**: Click any column header (Alias, Key, Tags, Used By, Updated) in the All Secrets view to sort ascending/descending. Sort state persists across sessions via localStorage. Includes keyboard accessibility (Enter/Space to toggle) and ARIA sort attributes.
+- **Tag checkbox filter**: New "Tags" filter button in the toolbar opens a dropdown with checkboxes for each tag. Supports AND/OR mode toggle. Filter state persists across sessions. Shows active filter count badge. Close with Escape or outside click.
+
+### Changed
+
+- **UI-Pro polish**: Sort headers show animated arrow indicators, tag filter dropdown has smooth open/close transitions, all interactive elements have visible focus states per WCAG guidelines.
+
 ## [1.2.0] - 2026-04-07
 
 ### Added
@@ -191,7 +213,9 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.0
+[1.3.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.3.0
 [1.2.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.2.0
 [1.1.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.1.0
 [1.0.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.0.0

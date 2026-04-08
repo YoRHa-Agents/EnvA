@@ -356,11 +356,70 @@ code, .mono { font-family:var(--font-mono); }
   display:flex; align-items:center; justify-content:space-between; gap:10px;
   margin:10px 0 8px; flex-wrap:wrap;
 }
+.selection-filter-bar {
+  display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;
+}
+.selection-filter-bar .search-box {
+  flex:1 1 200px; width:auto; min-width:200px;
+}
+.tag-filter-wrap { position:relative; display:inline-flex; }
+.tag-filter-btn {
+  display:inline-flex; align-items:center; gap:6px; padding:6px 12px;
+  min-height:auto; background:var(--surface); border:1px solid var(--border);
+  color:var(--muted); font-size:11px; letter-spacing:1px; cursor:pointer;
+  transition:all var(--transition);
+}
+.tag-filter-btn:hover { border-color:var(--gold); color:var(--ivory); }
+.tag-filter-btn:focus-visible { outline:1px solid var(--gold); outline-offset:1px; }
+.tag-filter-btn .filter-count {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:18px; height:18px; padding:0 5px;
+  background:var(--gold); color:var(--bg); font-size:10px; letter-spacing:0;
+}
+.tag-filter-dropdown {
+  position:absolute; top:calc(100% + 6px); left:0; z-index:30;
+  min-width:220px; max-height:280px; overflow-y:auto;
+  background:var(--surface); border:1px solid var(--border); padding:8px 0;
+  box-shadow:0 10px 30px rgba(0,0,0,0.35);
+  opacity:0; visibility:hidden; transform:translateY(-4px);
+  transition:opacity var(--transition), visibility var(--transition), transform var(--transition);
+}
+.tag-filter-dropdown.open { opacity:1; visibility:visible; transform:translateY(0); }
+.tag-filter-dropdown .tag-filter-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:4px 12px 8px; border-bottom:1px solid rgba(58,58,54,0.5); margin-bottom:4px;
+}
+.tag-filter-dropdown .tag-filter-header span { font-size:10px; color:var(--muted); letter-spacing:1px; }
+.tag-filter-dropdown .tag-filter-clear {
+  background:none; border:none; color:var(--gold); cursor:pointer;
+  font-family:var(--font-body); font-size:10px; letter-spacing:1px;
+}
+.tag-filter-dropdown .tag-filter-clear:hover { color:var(--ivory); }
+.tag-filter-dropdown .tag-filter-mode {
+  display:flex; gap:4px; padding:4px 12px 8px; border-bottom:1px solid rgba(58,58,54,0.5); margin-bottom:4px;
+}
+.tag-filter-dropdown .tag-filter-mode button {
+  flex:1; padding:4px 8px; background:transparent; border:1px solid var(--border);
+  color:var(--muted); cursor:pointer; font-size:10px; letter-spacing:1px;
+}
+.tag-filter-dropdown .tag-filter-mode button.active {
+  border-color:var(--gold); color:var(--ivory); background:rgba(196,163,90,0.08);
+}
+.tag-filter-item {
+  display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer;
+  transition:background var(--transition);
+}
+.tag-filter-item:hover { background:rgba(196,163,90,0.05); }
+.tag-filter-item input[type="checkbox"] { width:auto; accent-color:var(--gold); cursor:pointer; flex-shrink:0; }
+.tag-filter-item .tag-filter-count { margin-left:auto; color:var(--muted); font-size:10px; letter-spacing:1px; }
 .selection-action-buttons { display:flex; gap:8px; flex-wrap:wrap; }
 .selection-actions button { padding:6px 10px; font-size:11px; min-height:auto; }
 .selection-summary { font-size:11px; color:var(--muted); letter-spacing:1px; }
 .selection-list {
   max-height:170px; overflow:auto; border:1px solid var(--border); background:var(--bg);
+}
+.selection-empty {
+  padding:16px 12px; color:var(--muted); font-size:11px; letter-spacing:1px; text-align:center;
 }
 .selection-row {
   display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
@@ -369,6 +428,10 @@ code, .mono { font-family:var(--font-mono); }
 .selection-row:last-child { border-bottom:none; }
 .selection-row input[type="checkbox"] { width:auto; accent-color:var(--gold); cursor:pointer; }
 .selection-row .selection-meta { color:var(--muted); font-size:10px; letter-spacing:1px; }
+.selection-meta-line {
+  display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;
+}
+.selection-meta-line .tag-badge { margin-right:0; }
 .conflict-cell { min-width:210px; }
 .conflict-message { font-size:11px; color:var(--muted); }
 .conflict-message.error { color:var(--danger); }
@@ -553,7 +616,7 @@ code, .mono { font-family:var(--font-mono); }
         <div class="cmd">$ enva vault self-test</div>
         <div class="out">Vault integrity check passed.</div>
         <div class="cmd">$ enva --version</div>
-        <div class="out">enva 1.2.0</div>
+        <div class="out">enva 1.4.0</div>
       </div>
     </div>
   </div>
@@ -715,6 +778,20 @@ code, .mono { font-family:var(--font-mono); }
           </div>
           <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
         </div>
+        <div class="selection-filter-bar">
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="exportSearchInput" placeholder="Search aliases, keys, tags..." oninput="handleExportSearchInput()">
+          </div>
+          <div class="tag-filter-wrap" id="exportTagFilterWrap">
+            <button class="tag-filter-btn" id="exportTagFilterBtn" type="button" onclick="toggleExportTagFilter()" aria-haspopup="true" aria-expanded="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <span>TAGS</span>
+              <span class="filter-count" id="exportTagFilterCount" style="display:none">0</span>
+            </button>
+            <div class="tag-filter-dropdown" id="exportTagFilterDropdown" role="listbox" aria-label="Filter export targets by tags"></div>
+          </div>
+        </div>
         <div class="selection-list" id="exportSelectionList"></div>
       </div>
       <div class="field-group">
@@ -795,6 +872,9 @@ let pendingImportBundle = null;
 let pendingImportFile = null;
 let pendingImportText = '';
 let exportSelectionAliases = new Set();
+let exportSearchQuery = '';
+let exportTagFilters = new Set();
+let exportTagFilterMode = 'or';
 let confirmCallback = null;
 
 function loadState() {
@@ -1568,6 +1648,172 @@ function aliasesForExportScope(scope) {
   return APPS[scope] ? APPS[scope].secrets.filter(function(alias) { return !!SECRETS[alias]; }).slice() : [];
 }
 
+function resetExportFilters() {
+  exportSearchQuery = '';
+  exportTagFilters.clear();
+  exportTagFilterMode = 'or';
+  var searchInput = document.getElementById('exportSearchInput');
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  updateExportTagFilterCount();
+  closeExportTagFilter(false);
+}
+
+function exportTagsForScope(scope) {
+  var counts = {};
+  aliasesForExportScope(scope).forEach(function(alias) {
+    var secret = SECRETS[alias];
+    if (!secret) {
+      return;
+    }
+    (secret.tags || []).forEach(function(tag) {
+      counts[tag] = (counts[tag] || 0) + 1;
+    });
+  });
+  return Object.keys(counts).sort(function(a, b) {
+    if (counts[b] !== counts[a]) {
+      return counts[b] - counts[a];
+    }
+    return a.localeCompare(b);
+  }).map(function(tag) {
+    return [tag, counts[tag]];
+  });
+}
+
+function syncExportTagFiltersToScope(scope) {
+  var available = {};
+  exportTagsForScope(scope).forEach(function(entry) { available[entry[0]] = true; });
+  exportTagFilters = new Set(Array.from(exportTagFilters).filter(function(tag) { return !!available[tag]; }));
+  updateExportTagFilterCount();
+}
+
+function filterExportAliasesBySearch(aliases, scope) {
+  if (!exportSearchQuery) {
+    return aliases;
+  }
+  var app = scope !== 'all' ? APPS[scope] : null;
+  return aliases.filter(function(alias) {
+    var secret = SECRETS[alias];
+    if (!secret) {
+      return false;
+    }
+    var exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    return alias.toLowerCase().indexOf(exportSearchQuery) !== -1
+      || exportedKey.toLowerCase().indexOf(exportSearchQuery) !== -1
+      || (secret.description || '').toLowerCase().indexOf(exportSearchQuery) !== -1
+      || (secret.tags || []).some(function(tag) { return tag.toLowerCase().indexOf(exportSearchQuery) !== -1; });
+  });
+}
+
+function filterExportAliasesByTags(aliases) {
+  if (exportTagFilters.size === 0) {
+    return aliases;
+  }
+  return aliases.filter(function(alias) {
+    var tags = SECRETS[alias] ? (SECRETS[alias].tags || []) : [];
+    var selected = Array.from(exportTagFilters);
+    if (exportTagFilterMode === 'and') {
+      return selected.every(function(tag) { return tags.indexOf(tag) !== -1; });
+    }
+    return tags.some(function(tag) { return exportTagFilters.has(tag); });
+  });
+}
+
+function filteredAliasesForExportScope(scope) {
+  return filterExportAliasesByTags(filterExportAliasesBySearch(aliasesForExportScope(scope), scope));
+}
+
+function closeExportTagFilter(focusButton) {
+  var dropdown = document.getElementById('exportTagFilterDropdown');
+  var button = document.getElementById('exportTagFilterBtn');
+  if (!dropdown || !button || !dropdown.classList.contains('open')) {
+    return;
+  }
+  dropdown.classList.remove('open');
+  button.setAttribute('aria-expanded', 'false');
+  if (focusButton) {
+    button.focus();
+  }
+}
+
+function updateExportTagFilterCount() {
+  var badge = document.getElementById('exportTagFilterCount');
+  if (!badge) {
+    return;
+  }
+  var count = exportTagFilters.size;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? '' : 'none';
+}
+
+function handleExportSearchInput() {
+  exportSearchQuery = document.getElementById('exportSearchInput').value.trim().toLowerCase();
+  renderExportSelectionList();
+}
+
+function toggleExportTagFilter() {
+  var dropdown = document.getElementById('exportTagFilterDropdown');
+  var button = document.getElementById('exportTagFilterBtn');
+  if (dropdown.classList.contains('open')) {
+    closeExportTagFilter(false);
+    return;
+  }
+  buildExportTagFilterDropdown();
+  dropdown.classList.add('open');
+  button.setAttribute('aria-expanded', 'true');
+}
+
+function buildExportTagFilterDropdown() {
+  var dropdown = document.getElementById('exportTagFilterDropdown');
+  var tags = exportTagsForScope(document.getElementById('exportScope').value);
+  if (tags.length === 0) {
+    dropdown.innerHTML = '<div class="selection-empty">No tags found in this scope.</div>';
+    return;
+  }
+
+  var html = '<div class="tag-filter-header"><span>FILTER TAGS</span>';
+  html += '<button class="tag-filter-clear" type="button" onclick="clearExportTagFilters()">CLEAR</button></div>';
+  html += '<div class="tag-filter-mode">';
+  html += '<button type="button" class="' + (exportTagFilterMode === 'or' ? 'active' : '') + '" onclick="setExportTagMode(\'or\')">ANY</button>';
+  html += '<button type="button" class="' + (exportTagFilterMode === 'and' ? 'active' : '') + '" onclick="setExportTagMode(\'and\')">ALL</button>';
+  html += '</div>';
+  tags.forEach(function(entry) {
+    var tag = entry[0];
+    var count = entry[1];
+    var checked = exportTagFilters.has(tag) ? 'checked' : '';
+    html += '<label class="tag-filter-item">' +
+      '<input type="checkbox" ' + checked + ' onchange="onExportTagFilterChange(\'' + esc(tag) + '\', this.checked)">' +
+      '<span class="tag-badge ' + tagClass(tag) + '">' + esc(tag) + '</span>' +
+      '<span class="tag-filter-count">' + count + '</span>' +
+      '</label>';
+  });
+  dropdown.innerHTML = html;
+}
+
+function onExportTagFilterChange(tag, checked) {
+  if (checked) {
+    exportTagFilters.add(tag);
+  } else {
+    exportTagFilters.delete(tag);
+  }
+  updateExportTagFilterCount();
+  renderExportSelectionList();
+}
+
+function clearExportTagFilters() {
+  exportTagFilters.clear();
+  updateExportTagFilterCount();
+  buildExportTagFilterDropdown();
+  renderExportSelectionList();
+}
+
+function setExportTagMode(mode) {
+  exportTagFilterMode = mode;
+  buildExportTagFilterDropdown();
+  renderExportSelectionList();
+}
+
 function syncExportSelections(reset) {
   var aliases = aliasesForExportScope(document.getElementById('exportScope').value);
   if (reset) {
@@ -1580,37 +1826,57 @@ function syncExportSelections(reset) {
 
 function renderExportSelectionList() {
   var scope = document.getElementById('exportScope').value;
-  var aliases = syncExportSelections(false);
+  var allAliases = syncExportSelections(false);
+  var visibleAliases = filteredAliasesForExportScope(scope);
   var list = document.getElementById('exportSelectionList');
   var summary = document.getElementById('exportSelectionSummary');
   list.innerHTML = '';
 
-  if (aliases.length === 0) {
-    list.innerHTML = '<div class="selection-row"><span class="selection-meta">No secrets available in this scope.</span></div>';
+  if (allAliases.length === 0) {
+    list.innerHTML = '<div class="selection-empty">No secrets available in this scope.</div>';
     summary.textContent = 'No secrets available.';
     return;
   }
 
+  if (visibleAliases.length === 0) {
+    list.innerHTML = '<div class="selection-empty">No secrets match the current filters.</div>';
+    summary.textContent = exportSelectionAliases.size + ' selected of ' + allAliases.length + ' in scope';
+    return;
+  }
+
   var app = scope !== 'all' ? APPS[scope] : null;
-  for (var i = 0; i < aliases.length; i++) {
-    var alias = aliases[i];
+  for (var i = 0; i < visibleAliases.length; i++) {
+    var alias = visibleAliases[i];
     var secret = SECRETS[alias];
     var exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    var tagsHtml = (secret.tags || []).map(function(tag) {
+      return '<span class="tag-badge ' + tagClass(tag) + '">' + esc(tag) + '</span>';
+    }).join('');
     var row = document.createElement('div');
     row.className = 'selection-row';
     row.innerHTML =
       '<input type="checkbox" ' + (exportSelectionAliases.has(alias) ? 'checked' : '') + ' onchange="setExportRowSelected(\'' + esc(alias) + '\', this.checked)">' +
-      '<div><div class="mono">' + esc(alias) + '</div><div class="selection-meta">' + esc(exportedKey) + '</div></div>' +
+      '<div><div class="mono">' + esc(alias) + '</div><div class="selection-meta">' + esc(exportedKey) + '</div>' +
+      (tagsHtml ? '<div class="selection-meta-line">' + tagsHtml + '</div>' : '') + '</div>' +
       '<div class="selection-meta">' + esc(secret.updated || '') + '</div>';
     list.appendChild(row);
   }
 
-  summary.textContent = exportSelectionAliases.size + ' selected of ' + aliases.length;
+  var selectedVisibleCount = visibleAliases.filter(function(alias) { return exportSelectionAliases.has(alias); }).length;
+  summary.textContent = visibleAliases.length === allAliases.length
+    ? exportSelectionAliases.size + ' selected of ' + allAliases.length
+    : selectedVisibleCount + ' selected of ' + visibleAliases.length + ' shown (' + exportSelectionAliases.size + ' total selected of ' + allAliases.length + ')';
 }
 
 function setAllExportRows(selected) {
-  var aliases = aliasesForExportScope(document.getElementById('exportScope').value);
-  exportSelectionAliases = selected ? new Set(aliases) : new Set();
+  var aliases = filteredAliasesForExportScope(document.getElementById('exportScope').value);
+  aliases.forEach(function(alias) {
+    if (selected) {
+      exportSelectionAliases.add(alias);
+    } else {
+      exportSelectionAliases.delete(alias);
+    }
+  });
   renderExportSelectionList();
   updateExportPreview();
 }
@@ -1742,11 +2008,17 @@ function doExport() {
   scopeSel.innerHTML = '<option value="all">All Secrets</option>';
   for (var name in APPS) { scopeSel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>'; }
   if (currentView !== 'all') { scopeSel.value = currentView; }
+  resetExportFilters();
   syncExportSelections(true);
+  syncExportTagFiltersToScope(scopeSel.value);
   renderExportSelectionList();
   updateExportPreview();
   scopeSel.onchange = function() {
     syncExportSelections(true);
+    syncExportTagFiltersToScope(scopeSel.value);
+    if (document.getElementById('exportTagFilterDropdown').classList.contains('open')) {
+      buildExportTagFilterDropdown();
+    }
     renderExportSelectionList();
     updateExportPreview();
   };
@@ -1828,8 +2100,19 @@ document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
   overlay.addEventListener('click', function(e) { if (e.target === overlay) { overlay.classList.remove('show'); } });
 });
 
+document.addEventListener('click', function(e) {
+  var exportWrap = document.getElementById('exportTagFilterWrap');
+  if (exportWrap && !exportWrap.contains(e.target)) {
+    closeExportTagFilter(false);
+  }
+});
+
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    if (document.getElementById('exportTagFilterDropdown').classList.contains('open')) {
+      closeExportTagFilter(true);
+      return;
+    }
     document.querySelectorAll('.modal-overlay.show').forEach(function(m) { m.classList.remove('show'); });
     var cf = document.getElementById('confirmOverlay');
     if (cf.classList.contains('show')) { closeConfirm(false); }

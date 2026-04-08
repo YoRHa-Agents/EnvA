@@ -280,6 +280,78 @@ code, .mono { font-family:var(--font-mono); }
   display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500;
   margin-right:4px; margin-bottom:2px;
 }
+/* ─── Sortable Headers ───────────────────────────────── */
+.secrets-table th.sortable {
+  cursor:pointer; user-select:none; position:relative; padding-right:22px;
+  transition:color var(--transition);
+}
+.secrets-table th.sortable:hover { color:var(--text-primary); }
+.secrets-table th.sortable:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.secrets-table th.sortable .sort-arrow {
+  position:absolute; right:4px; top:50%; transform:translateY(-50%);
+  font-size:10px; opacity:0; transition:opacity var(--transition);
+}
+.secrets-table th.sortable.sort-active .sort-arrow { opacity:1; }
+
+/* ─── Tag Filter Dropdown ────────────────────────────── */
+.tag-filter-wrap { position:relative; display:inline-flex; }
+.tag-filter-btn {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:6px 12px; font-size:12px; font-family:var(--font-body);
+  background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius);
+  color:var(--text-secondary); cursor:pointer; transition:all var(--transition);
+  white-space:nowrap;
+}
+.tag-filter-btn:hover { border-color:var(--text-secondary); color:var(--text-primary); }
+.tag-filter-btn:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.tag-filter-btn .filter-count {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:18px; height:18px; padding:0 5px;
+  background:var(--accent); color:var(--bg-primary); border-radius:9px;
+  font-size:10px; font-weight:700;
+}
+.tag-filter-dropdown {
+  position:absolute; top:calc(100% + 6px); left:0; z-index:50;
+  min-width:220px; max-height:320px; overflow-y:auto;
+  background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow); padding:8px 0;
+  opacity:0; visibility:hidden; transform:translateY(-4px);
+  transition:opacity 0.15s, visibility 0.15s, transform 0.15s;
+}
+.tag-filter-dropdown.open { opacity:1; visibility:visible; transform:translateY(0); }
+.tag-filter-dropdown .tag-filter-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:4px 12px 8px; border-bottom:1px solid var(--border); margin-bottom:4px;
+}
+.tag-filter-dropdown .tag-filter-header span { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+.tag-filter-dropdown .tag-filter-clear {
+  font-size:11px; color:var(--accent); background:none; border:none; cursor:pointer;
+  font-family:var(--font-body); padding:2px 4px; border-radius:var(--radius);
+  transition:color var(--transition);
+}
+.tag-filter-dropdown .tag-filter-clear:hover { color:var(--text-primary); }
+.tag-filter-dropdown .tag-filter-mode {
+  display:flex; gap:2px; padding:4px 12px 8px; border-bottom:1px solid var(--border); margin-bottom:4px;
+}
+.tag-filter-dropdown .tag-filter-mode button {
+  flex:1; padding:4px 8px; font-size:11px; font-family:var(--font-body);
+  background:transparent; border:1px solid var(--border); border-radius:var(--radius);
+  color:var(--text-muted); cursor:pointer; transition:all var(--transition);
+}
+.tag-filter-dropdown .tag-filter-mode button.active {
+  background:var(--accent-bg); border-color:var(--accent); color:var(--text-primary);
+}
+.tag-filter-item {
+  display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer;
+  transition:background var(--transition);
+}
+.tag-filter-item:hover { background:var(--bg-hover); }
+.tag-filter-item input[type="checkbox"] {
+  width:14px; height:14px; accent-color:var(--accent); cursor:pointer; flex-shrink:0;
+}
+.tag-filter-item label { font-size:13px; cursor:pointer; flex:1; display:flex; align-items:center; gap:6px; }
+.tag-filter-item .tag-filter-count { font-size:11px; color:var(--text-muted); margin-left:auto; }
+
 .tag-production { background:var(--success-bg); color:var(--success); }
 .tag-staging { background:var(--warning-bg); color:var(--warning); }
 .tag-database { background:var(--cyan-bg); color:var(--cyan); }
@@ -453,10 +525,20 @@ code, .mono { font-family:var(--font-mono); }
 .selection-actions button {
   padding:6px 10px; font-size:11px; min-height:auto;
 }
+.selection-filter-bar {
+  display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;
+}
+.selection-filter-bar .search-box {
+  flex:1 1 220px; width:auto; min-width:220px;
+}
+.selection-filter-bar .tag-filter-wrap { flex-shrink:0; }
 .selection-summary { font-size:11px; color:var(--text-muted); }
 .selection-list {
   max-height:180px; overflow:auto; border:1px solid var(--border);
   border-radius:var(--radius); background:var(--bg-input);
+}
+.selection-empty {
+  padding:16px 12px; color:var(--text-muted); font-size:12px; text-align:center;
 }
 .selection-row {
   display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center;
@@ -466,6 +548,10 @@ code, .mono { font-family:var(--font-mono); }
 .selection-row input[type="checkbox"] { width:auto; accent-color:var(--accent); cursor:pointer; }
 .selection-row .mono { font-size:12px; }
 .selection-row .selection-meta { color:var(--text-muted); font-size:11px; }
+.selection-meta-line {
+  display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;
+}
+.selection-meta-line .tag-badge { margin-right:0; }
 .conflict-cell { min-width:220px; }
 .conflict-message { font-size:11px; color:var(--text-secondary); }
 .conflict-message.error { color:var(--danger); }
@@ -626,6 +712,14 @@ code, .mono { font-family:var(--font-mono); }
       <div class="search-box">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" id="searchInput" placeholder="Search aliases, keys, values..." oninput="renderTable()">
+      </div>
+      <div class="tag-filter-wrap" id="tagFilterWrap">
+        <button class="tag-filter-btn" id="tagFilterBtn" onclick="toggleTagFilter()" aria-haspopup="true" aria-expanded="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          <span data-i18n="filterTags">Tags</span>
+          <span class="filter-count" id="tagFilterCount" style="display:none">0</span>
+        </button>
+        <div class="tag-filter-dropdown" id="tagFilterDropdown" role="listbox" aria-label="Filter by tags"></div>
       </div>
     </div>
     <div class="topbar-right">
@@ -873,6 +967,20 @@ code, .mono { font-family:var(--font-mono); }
           </div>
           <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
         </div>
+        <div class="selection-filter-bar">
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="exportSearchInput" placeholder="Search aliases, keys, tags..." oninput="handleExportSearchInput()">
+          </div>
+          <div class="tag-filter-wrap" id="exportTagFilterWrap">
+            <button class="tag-filter-btn" id="exportTagFilterBtn" type="button" onclick="toggleExportTagFilter()" aria-haspopup="true" aria-expanded="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <span data-i18n="filterTags">Tags</span>
+              <span class="filter-count" id="exportTagFilterCount" style="display:none">0</span>
+            </button>
+            <div class="tag-filter-dropdown" id="exportTagFilterDropdown" role="listbox" aria-label="Filter export targets by tags"></div>
+          </div>
+        </div>
         <div class="selection-list" id="exportSelectionList"></div>
       </div>
       <div class="field-group">
@@ -946,7 +1054,7 @@ code, .mono { font-family:var(--font-mono); }
       </div>
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Self Update</div>
-        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.2.0</div>
+        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.4.0</div>
         <button class="btn btn-outline btn-sm" onclick="checkForUpdates()">Check for Updates</button>
       </div>
     </div>
@@ -1204,7 +1312,7 @@ const SECRETS = {};
 const APPS = {};
 
 const SSH_HOSTS = {};
-let APP_VERSION = 'v1.2.0';
+let APP_VERSION = 'v1.4.0';
 
 let currentView = 'all';
 let revealedValues = new Set();
@@ -1215,12 +1323,21 @@ let pendingImportBundle = null;
 let pendingImportFile = null;
 let pendingImportText = '';
 let exportSelectionAliases = new Set();
+let exportSearchQuery = '';
+let exportTagFilters = new Set();
+let exportTagFilterMode = 'or';
 let confirmCallback = null;
 let authToken = null;
 let selectedRemoteHost = null;
 let remotePreviewData = null;
 let remoteSelections = { secrets: new Set(), apps: new Set() };
 let editingRemoteHostAlias = null;
+
+/* ─── Sort & Tag Filter State ────────────────────────── */
+let sortColumn = localStorage.getItem('enva-sort-col') || null;
+let sortDirection = localStorage.getItem('enva-sort-dir') || 'asc';
+let activeTagFilters = new Set(JSON.parse(localStorage.getItem('enva-tag-filters') || '[]'));
+let tagFilterMode = localStorage.getItem('enva-tag-mode') || 'or'; // 'or' | 'and'
 
 function currentPort() {
   return location.port || '';
@@ -1668,6 +1785,7 @@ function loadSecretsFromAPI() {
         };
       }
       renderSidebar();
+      updateTagFilterCount();
       renderTable();
     })
     .catch(err => toast(err.message, 'error'));
@@ -2433,6 +2551,162 @@ async function saveSecretOrder(ordered) {
   }
 }
 
+/* ─── Sort & Tag Filter Logic ────────────────────────── */
+function setSort(col) {
+  if (sortColumn === col) {
+    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortColumn = col;
+    sortDirection = 'asc';
+  }
+  localStorage.setItem('enva-sort-col', sortColumn);
+  localStorage.setItem('enva-sort-dir', sortDirection);
+  renderTable();
+}
+
+function sortAliases(aliases) {
+  if (!sortColumn || currentView !== 'all') return aliases;
+  const dir = sortDirection === 'asc' ? 1 : -1;
+  return aliases.slice().sort((a, b) => {
+    const sa = SECRETS[a], sb = SECRETS[b];
+    let va, vb;
+    switch (sortColumn) {
+      case 'alias': va = a.toLowerCase(); vb = b.toLowerCase(); break;
+      case 'key': va = sa.key.toLowerCase(); vb = sb.key.toLowerCase(); break;
+      case 'tags': va = sa.tags.length; vb = sb.tags.length; return (va - vb) * dir;
+      case 'usedby': va = getAppsForSecret(a).length; vb = getAppsForSecret(b).length; return (va - vb) * dir;
+      case 'updated': va = sa.updated || ''; vb = sb.updated || ''; break;
+      default: return 0;
+    }
+    return va < vb ? -dir : va > vb ? dir : 0;
+  });
+}
+
+function getAllTags() {
+  const counts = {};
+  for (const s of Object.values(SECRETS)) {
+    for (const t of s.tags) { counts[t] = (counts[t] || 0) + 1; }
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+}
+
+function toggleTagFilter() {
+  const dd = document.getElementById('tagFilterDropdown');
+  const btn = document.getElementById('tagFilterBtn');
+  const isOpen = dd.classList.contains('open');
+  if (isOpen) {
+    dd.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+  } else {
+    buildTagFilterDropdown();
+    dd.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+}
+
+function buildTagFilterDropdown() {
+  const dd = document.getElementById('tagFilterDropdown');
+  const tags = getAllTags();
+  if (tags.length === 0) {
+    dd.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-muted);text-align:center;">No tags found</div>';
+    return;
+  }
+  let html = '<div class="tag-filter-header"><span>Filter by Tags</span>';
+  html += '<button class="tag-filter-clear" onclick="clearTagFilters()">Clear</button></div>';
+  html += '<div class="tag-filter-mode">';
+  html += `<button class="${tagFilterMode === 'or' ? 'active' : ''}" onclick="setTagMode('or')">Any (OR)</button>`;
+  html += `<button class="${tagFilterMode === 'and' ? 'active' : ''}" onclick="setTagMode('and')">All (AND)</button>`;
+  html += '</div>';
+  for (const [tag, count] of tags) {
+    const checked = activeTagFilters.has(tag) ? 'checked' : '';
+    const cls = tagClass(tag);
+    html += `<label class="tag-filter-item">
+      <input type="checkbox" ${checked} onchange="onTagFilterChange('${esc(tag)}', this.checked)">
+      <span class="tag-badge ${cls}">${esc(tag)}</span>
+      <span class="tag-filter-count">${count}</span>
+    </label>`;
+  }
+  dd.innerHTML = html;
+}
+
+function onTagFilterChange(tag, checked) {
+  if (checked) activeTagFilters.add(tag); else activeTagFilters.delete(tag);
+  persistTagFilters();
+  updateTagFilterCount();
+  renderTable();
+}
+
+function clearTagFilters() {
+  activeTagFilters.clear();
+  persistTagFilters();
+  updateTagFilterCount();
+  buildTagFilterDropdown();
+  renderTable();
+}
+
+function setTagMode(mode) {
+  tagFilterMode = mode;
+  localStorage.setItem('enva-tag-mode', mode);
+  buildTagFilterDropdown();
+  renderTable();
+}
+
+function persistTagFilters() {
+  localStorage.setItem('enva-tag-filters', JSON.stringify([...activeTagFilters]));
+}
+
+function updateTagFilterCount() {
+  const badge = document.getElementById('tagFilterCount');
+  const n = activeTagFilters.size;
+  badge.textContent = n;
+  badge.style.display = n > 0 ? '' : 'none';
+}
+
+function filterByTags(aliases) {
+  if (activeTagFilters.size === 0) return aliases;
+  return aliases.filter(alias => {
+    const tags = SECRETS[alias].tags;
+    if (tagFilterMode === 'and') return [...activeTagFilters].every(t => tags.includes(t));
+    return tags.some(t => activeTagFilters.has(t));
+  });
+}
+
+// Close tag filter dropdown on outside click / Escape
+document.addEventListener('click', function(e) {
+  const wrap = document.getElementById('tagFilterWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    const dd = document.getElementById('tagFilterDropdown');
+    const btn = document.getElementById('tagFilterBtn');
+    if (dd && dd.classList.contains('open')) {
+      dd.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+  const exportWrap = document.getElementById('exportTagFilterWrap');
+  if (exportWrap && !exportWrap.contains(e.target)) {
+    closeExportTagFilter();
+  }
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    const dd = document.getElementById('tagFilterDropdown');
+    const btn = document.getElementById('tagFilterBtn');
+    if (dd && dd.classList.contains('open')) {
+      dd.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.focus();
+    }
+    closeExportTagFilter(true);
+  }
+});
+
+function makeSortableHeader(col, label) {
+  const isActive = sortColumn === col && currentView === 'all';
+  const arrow = sortDirection === 'asc' ? '\u25B2' : '\u25BC';
+  const cls = isActive ? 'sortable sort-active' : 'sortable';
+  return `<th class="${cls}" tabindex="0" role="columnheader" aria-sort="${isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}" onclick="setSort('${col}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setSort('${col}')}">${label}<span class="sort-arrow">${arrow}</span></th>`;
+}
+
 /* ─── Table Rendering ─────────────────────────────────── */
 function renderTable() {
   const thead = document.getElementById('tableHead');
@@ -2445,7 +2719,14 @@ function renderTable() {
   if (isApp) {
     thead.innerHTML = '<tr><th style="width:28px"></th><th>Alias</th><th>Key</th><th>Injected As</th><th>Value</th><th>Tags</th><th>Updated</th><th>Actions</th></tr>';
   } else {
-    thead.innerHTML = '<tr><th>Alias</th><th>Key</th><th>Value</th><th>Tags</th><th>Used By</th><th>Updated</th><th>Actions</th></tr>';
+    thead.innerHTML = '<tr>'
+      + makeSortableHeader('alias', 'Alias')
+      + makeSortableHeader('key', 'Key')
+      + '<th>Value</th>'
+      + makeSortableHeader('tags', 'Tags')
+      + makeSortableHeader('usedby', 'Used By')
+      + makeSortableHeader('updated', 'Updated')
+      + '<th>Actions</th></tr>';
   }
 
   let aliases;
@@ -2464,6 +2745,12 @@ function renderTable() {
         s.tags.some(t => t.includes(search));
     });
   }
+
+  // Apply tag filter
+  aliases = filterByTags(aliases);
+
+  // Apply sorting (All Secrets view only)
+  aliases = sortAliases(aliases);
 
   tbody.innerHTML = '';
   const empty = document.getElementById('emptyState');
@@ -3465,6 +3752,165 @@ function aliasesForExportScope(scope) {
   return APPS[scope] ? APPS[scope].secrets.filter(alias => SECRETS[alias]).slice() : [];
 }
 
+function resetExportFilters() {
+  exportSearchQuery = '';
+  exportTagFilters.clear();
+  exportTagFilterMode = 'or';
+  const searchInput = document.getElementById('exportSearchInput');
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  updateExportTagFilterCount();
+  closeExportTagFilter();
+}
+
+function exportTagsForScope(scope) {
+  const counts = {};
+  for (const alias of aliasesForExportScope(scope)) {
+    const secret = SECRETS[alias];
+    if (!secret) {
+      continue;
+    }
+    for (const tag of secret.tags || []) {
+      counts[tag] = (counts[tag] || 0) + 1;
+    }
+  }
+  return Object.entries(counts).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+}
+
+function syncExportTagFiltersToScope(scope) {
+  const availableTags = new Set(exportTagsForScope(scope).map(([tag]) => tag));
+  exportTagFilters = new Set([...exportTagFilters].filter(tag => availableTags.has(tag)));
+  updateExportTagFilterCount();
+}
+
+function filterExportAliasesBySearch(aliases, scope) {
+  if (!exportSearchQuery) {
+    return aliases;
+  }
+  const app = scope !== 'all' ? APPS[scope] : null;
+  return aliases.filter(alias => {
+    const secret = SECRETS[alias];
+    if (!secret) {
+      return false;
+    }
+    const exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    return alias.toLowerCase().includes(exportSearchQuery)
+      || exportedKey.toLowerCase().includes(exportSearchQuery)
+      || (secret.description || '').toLowerCase().includes(exportSearchQuery)
+      || (secret.tags || []).some(tag => tag.toLowerCase().includes(exportSearchQuery));
+  });
+}
+
+function filterExportAliasesByTags(aliases) {
+  if (exportTagFilters.size === 0) {
+    return aliases;
+  }
+  return aliases.filter(alias => {
+    const tags = SECRETS[alias] ? (SECRETS[alias].tags || []) : [];
+    if (exportTagFilterMode === 'and') {
+      return [...exportTagFilters].every(tag => tags.includes(tag));
+    }
+    return tags.some(tag => exportTagFilters.has(tag));
+  });
+}
+
+function filteredAliasesForExportScope(scope) {
+  const searchFiltered = filterExportAliasesBySearch(aliasesForExportScope(scope), scope);
+  return filterExportAliasesByTags(searchFiltered);
+}
+
+function closeExportTagFilter(focusButton = false) {
+  const dropdown = document.getElementById('exportTagFilterDropdown');
+  const button = document.getElementById('exportTagFilterBtn');
+  if (!dropdown || !button || !dropdown.classList.contains('open')) {
+    return;
+  }
+  dropdown.classList.remove('open');
+  button.setAttribute('aria-expanded', 'false');
+  if (focusButton) {
+    button.focus();
+  }
+}
+
+function updateExportTagFilterCount() {
+  const badge = document.getElementById('exportTagFilterCount');
+  if (!badge) {
+    return;
+  }
+  const count = exportTagFilters.size;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? '' : 'none';
+}
+
+function handleExportSearchInput() {
+  exportSearchQuery = document.getElementById('exportSearchInput').value.trim().toLowerCase();
+  renderExportSelectionList();
+}
+
+function toggleExportTagFilter() {
+  const dropdown = document.getElementById('exportTagFilterDropdown');
+  const button = document.getElementById('exportTagFilterBtn');
+  const isOpen = dropdown.classList.contains('open');
+  if (isOpen) {
+    closeExportTagFilter();
+    return;
+  }
+  buildExportTagFilterDropdown();
+  dropdown.classList.add('open');
+  button.setAttribute('aria-expanded', 'true');
+}
+
+function buildExportTagFilterDropdown() {
+  const dropdown = document.getElementById('exportTagFilterDropdown');
+  const scope = document.getElementById('exportScope').value;
+  const tags = exportTagsForScope(scope);
+  if (tags.length === 0) {
+    dropdown.innerHTML = '<div class="selection-empty">No tags found in this scope.</div>';
+    return;
+  }
+
+  let html = '<div class="tag-filter-header"><span>Filter by Tags</span>';
+  html += '<button class="tag-filter-clear" type="button" onclick="clearExportTagFilters()">Clear</button></div>';
+  html += '<div class="tag-filter-mode">';
+  html += `<button type="button" class="${exportTagFilterMode === 'or' ? 'active' : ''}" onclick="setExportTagMode('or')">Any (OR)</button>`;
+  html += `<button type="button" class="${exportTagFilterMode === 'and' ? 'active' : ''}" onclick="setExportTagMode('and')">All (AND)</button>`;
+  html += '</div>';
+  for (const [tag, count] of tags) {
+    const checked = exportTagFilters.has(tag) ? 'checked' : '';
+    const cls = tagClass(tag);
+    html += `<label class="tag-filter-item">
+      <input type="checkbox" ${checked} onchange="onExportTagFilterChange('${esc(tag)}', this.checked)">
+      <span class="tag-badge ${cls}">${esc(tag)}</span>
+      <span class="tag-filter-count">${count}</span>
+    </label>`;
+  }
+  dropdown.innerHTML = html;
+}
+
+function onExportTagFilterChange(tag, checked) {
+  if (checked) {
+    exportTagFilters.add(tag);
+  } else {
+    exportTagFilters.delete(tag);
+  }
+  updateExportTagFilterCount();
+  renderExportSelectionList();
+}
+
+function clearExportTagFilters() {
+  exportTagFilters.clear();
+  updateExportTagFilterCount();
+  buildExportTagFilterDropdown();
+  renderExportSelectionList();
+}
+
+function setExportTagMode(mode) {
+  exportTagFilterMode = mode;
+  buildExportTagFilterDropdown();
+  renderExportSelectionList();
+}
+
 function syncExportSelections(reset = false) {
   const aliases = aliasesForExportScope(document.getElementById('exportScope').value);
   if (reset) {
@@ -3477,21 +3923,31 @@ function syncExportSelections(reset = false) {
 
 function renderExportSelectionList() {
   const scope = document.getElementById('exportScope').value;
-  const aliases = syncExportSelections(false);
+  const allAliases = syncExportSelections(false);
+  const visibleAliases = filteredAliasesForExportScope(scope);
   const list = document.getElementById('exportSelectionList');
   const summary = document.getElementById('exportSelectionSummary');
   list.innerHTML = '';
 
-  if (aliases.length === 0) {
-    list.innerHTML = '<div class="selection-row"><span class="selection-meta">No secrets available in this scope.</span></div>';
+  if (allAliases.length === 0) {
+    list.innerHTML = '<div class="selection-empty">No secrets available in this scope.</div>';
     summary.textContent = 'No secrets available.';
     return;
   }
 
+  if (visibleAliases.length === 0) {
+    list.innerHTML = '<div class="selection-empty">No secrets match the current filters.</div>';
+    summary.textContent = `${exportSelectionAliases.size} selected of ${allAliases.length} in scope`;
+    return;
+  }
+
   const app = scope !== 'all' ? APPS[scope] : null;
-  for (const alias of aliases) {
+  for (const alias of visibleAliases) {
     const secret = SECRETS[alias];
     const exportedKey = app && app.overrides[alias] ? app.overrides[alias] : secret.key;
+    const tagsHtml = (secret.tags || [])
+      .map(tag => `<span class="tag-badge ${tagClass(tag)}">${esc(tag)}</span>`)
+      .join('');
     const row = document.createElement('div');
     row.className = 'selection-row';
     row.innerHTML = `
@@ -3499,17 +3955,27 @@ function renderExportSelectionList() {
       <div>
         <div class="mono">${esc(alias)}</div>
         <div class="selection-meta">${esc(exportedKey)}</div>
+        ${tagsHtml ? `<div class="selection-meta-line">${tagsHtml}</div>` : ''}
       </div>
       <div class="selection-meta">${esc(secret.updated || '')}</div>`;
     list.appendChild(row);
   }
 
-  summary.textContent = `${exportSelectionAliases.size} selected of ${aliases.length}`;
+  const selectedVisibleCount = visibleAliases.filter(alias => exportSelectionAliases.has(alias)).length;
+  summary.textContent = visibleAliases.length === allAliases.length
+    ? `${exportSelectionAliases.size} selected of ${allAliases.length}`
+    : `${selectedVisibleCount} selected of ${visibleAliases.length} shown (${exportSelectionAliases.size} total selected of ${allAliases.length})`;
 }
 
 function setAllExportRows(selected) {
-  const aliases = aliasesForExportScope(document.getElementById('exportScope').value);
-  exportSelectionAliases = selected ? new Set(aliases) : new Set();
+  const aliases = filteredAliasesForExportScope(document.getElementById('exportScope').value);
+  for (const alias of aliases) {
+    if (selected) {
+      exportSelectionAliases.add(alias);
+    } else {
+      exportSelectionAliases.delete(alias);
+    }
+  }
   renderExportSelectionList();
   updateExportPreview();
 }
@@ -3584,11 +4050,17 @@ function doExport() {
     scopeSel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
   }
   if (currentView !== 'all') scopeSel.value = currentView;
+  resetExportFilters();
   syncExportSelections(true);
+  syncExportTagFiltersToScope(scopeSel.value);
   renderExportSelectionList();
   updateExportPreview();
   scopeSel.onchange = () => {
     syncExportSelections(true);
+    syncExportTagFiltersToScope(scopeSel.value);
+    if (document.getElementById('exportTagFilterDropdown').classList.contains('open')) {
+      buildExportTagFilterDropdown();
+    }
     renderExportSelectionList();
     updateExportPreview();
   };

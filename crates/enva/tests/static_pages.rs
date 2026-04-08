@@ -21,7 +21,12 @@ fn embedded_ui_contains_selection_controls_for_import_and_export() {
 
     assert!(html.contains("id=\"exportSelectionList\""));
     assert!(html.contains("id=\"exportSelectionSummary\""));
+    assert!(html.contains("id=\"exportSearchInput\""));
+    assert!(html.contains("id=\"exportTagFilterBtn\""));
+    assert!(html.contains("id=\"exportTagFilterDropdown\""));
     assert!(html.contains("id=\"importConflictSummary\""));
+    assert!(html.contains("handleExportSearchInput()"));
+    assert!(html.contains("toggleExportTagFilter()"));
     assert!(html.contains("setAllImportRows(true)"));
     assert!(html.contains("setAllExportRows(true)"));
     assert!(html.contains("Replace existing"));
@@ -61,7 +66,12 @@ fn demo_page_contains_matching_selection_controls() {
 
     assert!(html.contains("id=\"exportSelectionList\""));
     assert!(html.contains("id=\"exportSelectionSummary\""));
+    assert!(html.contains("id=\"exportSearchInput\""));
+    assert!(html.contains("id=\"exportTagFilterBtn\""));
+    assert!(html.contains("id=\"exportTagFilterDropdown\""));
     assert!(html.contains("id=\"importConflictSummary\""));
+    assert!(html.contains("handleExportSearchInput()"));
+    assert!(html.contains("toggleExportTagFilter()"));
     assert!(html.contains("setAllImportRows(true)"));
     assert!(html.contains("setAllExportRows(true)"));
     assert!(html.contains("Replace existing"));
