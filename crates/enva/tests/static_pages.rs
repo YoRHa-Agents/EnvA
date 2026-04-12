@@ -30,6 +30,7 @@ fn embedded_ui_contains_selection_controls_for_import_and_export() {
     assert!(html.contains("setAllImportRows(true)"));
     assert!(html.contains("setAllExportRows(true)"));
     assert!(html.contains("Replace existing"));
+    assert!(html.contains("copySecretValue("));
 }
 
 #[test]
@@ -75,4 +76,5 @@ fn demo_page_contains_matching_selection_controls() {
     assert!(html.contains("setAllImportRows(true)"));
     assert!(html.contains("setAllExportRows(true)"));
     assert!(html.contains("Replace existing"));
+    assert!(html.contains("copySecretValue("));
 }

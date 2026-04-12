@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-04-12
+
+### Fixed
+
+- **Sticky table headers**: All column headers now remain visible while scrolling. A CSS specificity bug (`position: relative` on sortable headers overriding `position: sticky`) caused sortable columns to scroll away while non-sortable ones stayed pinned.
+- **Export modal layout**: Relocated the tag filter control to the Select All / Clear All row and made the search box full-width standalone, eliminating horizontal overflow on narrow viewports.
+
+### Added
+
+- **Copy value button**: Each secret row now has a clipboard icon that copies the decrypted value without needing to reveal it first. Uses Clipboard API with textarea fallback.
+- **Responsive modal handling**: Added `@media (max-width: 640px)` breakpoint constraining modals to 95vw with tighter action row gaps.
+- **Accessibility improvements**: Eye toggle buttons now carry dynamic `title` attributes ("Reveal value" / "Hide value"); added missing `filterTags` i18n key to both EN and ZH locales.
+
 ## [1.4.0] - 2026-04-08
 
 ### Added
