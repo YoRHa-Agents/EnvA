@@ -282,7 +282,7 @@ code, .mono { font-family:var(--font-mono); }
 }
 /* ─── Sortable Headers ───────────────────────────────── */
 .secrets-table th.sortable {
-  cursor:pointer; user-select:none; position:relative; padding-right:22px;
+  cursor:pointer; user-select:none; padding-right:22px;
   transition:color var(--transition);
 }
 .secrets-table th.sortable:hover { color:var(--text-primary); }
@@ -605,6 +605,11 @@ code, .mono { font-family:var(--font-mono); }
 .sidebar-footer button,
 .actions button {
   border-width: 1px;
+}
+@media (max-width: 640px) {
+  .modal { width:95vw !important; max-height:90vh; }
+  .search-box { width:100% !important; }
+  .selection-actions { gap:6px; }
 }
 </style>
 </head>
@@ -965,13 +970,6 @@ code, .mono { font-family:var(--font-mono); }
             <button class="btn btn-outline" type="button" onclick="setAllExportRows(true)">Select All</button>
             <button class="btn btn-outline" type="button" onclick="setAllExportRows(false)">Clear All</button>
           </div>
-          <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
-        </div>
-        <div class="selection-filter-bar">
-          <div class="search-box">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="exportSearchInput" placeholder="Search aliases, keys, tags..." oninput="handleExportSearchInput()">
-          </div>
           <div class="tag-filter-wrap" id="exportTagFilterWrap">
             <button class="tag-filter-btn" id="exportTagFilterBtn" type="button" onclick="toggleExportTagFilter()" aria-haspopup="true" aria-expanded="false">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -980,6 +978,11 @@ code, .mono { font-family:var(--font-mono); }
             </button>
             <div class="tag-filter-dropdown" id="exportTagFilterDropdown" role="listbox" aria-label="Filter export targets by tags"></div>
           </div>
+          <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
+        </div>
+        <div class="search-box" style="width:100%;margin-bottom:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="exportSearchInput" placeholder="Search aliases, keys, tags..." oninput="handleExportSearchInput()">
         </div>
         <div class="selection-list" id="exportSelectionList"></div>
       </div>
@@ -1054,7 +1057,7 @@ code, .mono { font-family:var(--font-mono); }
       </div>
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">Self Update</div>
-        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.4.0</div>
+        <div class="field-hint" id="updateStatus" style="display:block;margin-bottom:10px;">Current version: v1.4.1</div>
         <button class="btn btn-outline btn-sm" onclick="checkForUpdates()">Check for Updates</button>
       </div>
     </div>
@@ -1240,7 +1243,7 @@ const TRANSLATIONS = {
     batchAdd: 'Batch Add', batchPasteLabel: 'Paste multiple lines',
     batchPasteHint: 'One per line: <code>export KEY=VALUE</code>, <code>KEY=VALUE</code>, or <code>KEY="VALUE"</code>',
     addRow: 'Add Row', batchAssignApp: 'Assign all to app (optional)',
-    batchSubmit: 'Add All'
+    batchSubmit: 'Add All', filterTags: 'Tags'
   },
   zh: {
     appTitle: 'Enva', loginTitle: 'Enva', loginSubtitle: '环境变量管理器',
@@ -1272,7 +1275,7 @@ const TRANSLATIONS = {
     batchAdd: '批量添加', batchPasteLabel: '粘贴多行',
     batchPasteHint: '每行一个: <code>export KEY=VALUE</code>、<code>KEY=VALUE</code> 或 <code>KEY="VALUE"</code>',
     addRow: '添加行', batchAssignApp: '分配到应用（可选）',
-    batchSubmit: '全部添加'
+    batchSubmit: '全部添加', filterTags: '标签'
   }
 };
 
@@ -1312,7 +1315,7 @@ const SECRETS = {};
 const APPS = {};
 
 const SSH_HOSTS = {};
-let APP_VERSION = 'v1.4.0';
+let APP_VERSION = 'v1.4.1';
 
 let currentView = 'all';
 let revealedValues = new Set();
@@ -2831,7 +2834,7 @@ function renderTable() {
       <td class="alias-cell"><span class="mono">${esc(alias)}</span></td>
       <td class="key-cell"><span class="mono">${esc(s.key)}</span></td>
       ${injectedCell}
-      <td><div class="secret-value">${valueHtml}<button onclick="toggleReveal('${esc(alias)}')">${eyeIcon}</button></div></td>
+      <td><div class="secret-value">${valueHtml}<button onclick="toggleReveal('${esc(alias)}')" title="${revealed ? 'Hide value' : 'Reveal value'}">${eyeIcon}</button><button onclick="copySecretValue('${esc(alias)}')" title="Copy value"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div></td>
       <td>${tagsHtml}</td>
       ${usedByCell}
       <td class="timestamp" title="${s.updated}">${timeAgo(s.updated)}</td>
@@ -2871,6 +2874,33 @@ function toggleReveal(alias) {
       }
       revealedValues.add(alias);
       renderTable();
+    })
+    .catch(err => toast(err.message, 'error'));
+}
+
+function copySecretValue(alias) {
+  function doCopy(text) {
+    navigator.clipboard.writeText(text).then(() => toast('Value copied to clipboard.')).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast('Value copied to clipboard.');
+    });
+  }
+  if (revealedValues.has(alias) && SECRETS[alias]._revealedValue !== undefined) {
+    doCopy(SECRETS[alias]._revealedValue);
+    return;
+  }
+  apiFetch(`/secrets/${encodeURIComponent(alias)}?reveal=true`)
+    .then(data => {
+      if (data.value !== undefined) {
+        doCopy(data.value);
+      }
     })
     .catch(err => toast(err.message, 'error'));
 }

@@ -616,7 +616,7 @@ code, .mono { font-family:var(--font-mono); }
         <div class="cmd">$ enva vault self-test</div>
         <div class="out">Vault integrity check passed.</div>
         <div class="cmd">$ enva --version</div>
-        <div class="out">enva 1.4.0</div>
+        <div class="out">enva 1.4.1</div>
       </div>
     </div>
   </div>
@@ -776,13 +776,6 @@ code, .mono { font-family:var(--font-mono); }
             <button class="btn" type="button" onclick="setAllExportRows(true)">SELECT ALL</button>
             <button class="btn" type="button" onclick="setAllExportRows(false)">CLEAR ALL</button>
           </div>
-          <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
-        </div>
-        <div class="selection-filter-bar">
-          <div class="search-box">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="exportSearchInput" placeholder="Search aliases, keys, tags..." oninput="handleExportSearchInput()">
-          </div>
           <div class="tag-filter-wrap" id="exportTagFilterWrap">
             <button class="tag-filter-btn" id="exportTagFilterBtn" type="button" onclick="toggleExportTagFilter()" aria-haspopup="true" aria-expanded="false">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -791,6 +784,11 @@ code, .mono { font-family:var(--font-mono); }
             </button>
             <div class="tag-filter-dropdown" id="exportTagFilterDropdown" role="listbox" aria-label="Filter export targets by tags"></div>
           </div>
+          <div class="selection-summary" id="exportSelectionSummary">Choose which secrets to export.</div>
+        </div>
+        <div class="search-box" style="width:100%;margin-bottom:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="exportSearchInput" placeholder="Search aliases, keys, tags..." oninput="handleExportSearchInput()">
         </div>
         <div class="selection-list" id="exportSelectionList"></div>
       </div>
@@ -1098,7 +1096,7 @@ function renderTable() {
     tr.innerHTML = '<td class="alias-cell"><span class="mono">' + esc(alias) + '</span></td>' +
       '<td class="key-cell"><span class="mono">' + esc(s.key) + '</span></td>' +
       injectedCell +
-      '<td><div class="secret-value">' + valueHtml + '<button onclick="toggleReveal(\'' + esc(alias) + '\')">' + eyeIcon + '</button></div></td>' +
+      '<td><div class="secret-value">' + valueHtml + '<button onclick="toggleReveal(\'' + esc(alias) + '\')" title="' + (revealed ? 'Hide value' : 'Reveal value') + '">' + eyeIcon + '</button><button onclick="copySecretValue(\'' + esc(alias) + '\')" title="Copy value"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div></td>' +
       '<td>' + tagsHtml + '</td>' +
       usedByCell +
       '<td class="timestamp" title="' + s.updated + '">' + timeAgo(s.updated) + '</td>' +
@@ -1113,6 +1111,27 @@ function toggleReveal(alias) {
   if (revealedValues.has(alias)) { revealedValues.delete(alias); }
   else { revealedValues.add(alias); }
   renderTable();
+}
+
+function copySecretValue(alias) {
+  var secret = SECRETS[alias];
+  if (!secret) {
+    return;
+  }
+  var text = secret.value || '';
+  navigator.clipboard.writeText(text).then(function() {
+    toast('Value copied to clipboard.');
+  }).catch(function() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('Value copied to clipboard.');
+  });
 }
 
 function openSecretModal() {
