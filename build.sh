@@ -76,9 +76,9 @@ resolve_rows() {
   done
   local -a deduped=()
   local row x exists
-  for row in "${out[@]}"; do
+  for row in "${out[@]-}"; do
     exists=
-    for x in "${deduped[@]}"; do
+    for x in "${deduped[@]-}"; do
       if [[ "${x}" == "${row}" ]]; then
         exists=1
         break
