@@ -47,8 +47,8 @@ jobs:
           fi
           ./scripts/check-release-version.sh "$RELEASE_TAG"
 
-  build:
-    name: build release assets
+  build-linux:
+    name: build Linux release assets
     needs: validate
     runs-on: ubuntu-latest
     steps:
@@ -64,31 +64,61 @@ jobs:
           echo "$RUNNER_TEMP/zig-x86_64-linux-0.15.0" >> "$GITHUB_PATH"
       - name: Build all release assets
         run: |
-          ./build.sh all
+          ./build.sh linux-x86_64 linux-aarch64
           sha256sum release/enva-* > release/SHA256SUMS
-          test "$(wc -l < release/SHA256SUMS)" -eq 3
+          test "$(wc -l < release/SHA256SUMS)" -eq 2
       - name: Upload release assets
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: release-assets
+          name: linux-assets
+          path: release/
+          if-no-files-found: error
+
+  build-macos:
+    name: build macOS release asset
+    needs: validate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install Rust
+        run: rustup toolchain install --profile minimal
+      - name: Build macOS asset
+        run: |
+          ./build.sh macos-aarch64
+          shasum -a 256 release/enva-macos-aarch64 > release/SHA256SUMS
+      - name: Upload macOS asset
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: macos-assets
           path: release/
           if-no-files-found: error
 
   macos-e2e:
     name: macOS release e2e
-    needs: build
+    needs: [build-linux, build-macos]
     runs-on: macos-14
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - name: Download release assets
+      - name: Download Linux release assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: release-assets
+          name: linux-assets
+          path: release
+      - name: Download macOS release asset
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: macos-assets
           path: release
       - name: Run macOS end-to-end suite
         run: |
           chmod +x release/enva-macos-aarch64
           ./scripts/test-macos.sh release/enva-macos-aarch64
+      - name: Upload tested release assets
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: release-assets
+          path: release/
+          if-no-files-found: error
 
   publish-release:
     name: publish GitHub release
