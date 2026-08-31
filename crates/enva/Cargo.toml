@@ -2,6 +2,7 @@
 name = "enva"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [lints]
 workspace = true
@@ -11,7 +12,7 @@ name = "enva"
 path = "src/main.rs"
 
 [dependencies]
-enva-core = { path = "../enva-core" }
+enva-core = { path = "../enva-core", version = "1.4.1" }
 
 serde.workspace = true
 serde_json.workspace = true
@@ -26,7 +27,7 @@ tower-http = { version = "0.6", features = ["cors", "fs"] }
 rust-embed = { version = "8", features = ["axum"] }
 mime_guess = "2"
 
-jsonwebtoken = { version = "10", default-features = false, features = ["use_pem", "rust_crypto"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 serde_yaml = "0.9"
 dirs = "6"
 regex = "1"

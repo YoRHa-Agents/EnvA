@@ -2784,7 +2784,11 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let resolved = tmp.path().join("./relative-init.vault.json");
+        let resolved = tmp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("./relative-init.vault.json");
         assert!(resolved.exists());
         assert_eq!(state.vault_path(), resolved.to_string_lossy());
     }
@@ -2900,7 +2904,11 @@ mod tests {
         let _lock = current_dir_lock().lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let _cwd = push_current_dir(tmp.path());
-        let requested = tmp.path().join("./selected.vault.json");
+        let requested = tmp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("./selected.vault.json");
         let requested_str = requested.to_string_lossy().to_string();
         VaultStore::create(&requested_str, "correctpw", None).unwrap();
 
@@ -2946,7 +2954,11 @@ mod tests {
         assert_eq!(json["relogin_required"], true);
         assert_eq!(
             state.vault_path(),
-            tmp.path().join("./next.vault.json").to_string_lossy()
+            tmp.path()
+                .canonicalize()
+                .unwrap()
+                .join("./next.vault.json")
+                .to_string_lossy()
         );
 
         let req = authed_request("GET", "/api/apps", &token, None);
@@ -2974,7 +2986,12 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(
             json["resolved_path"],
-            tmp.path().join("./bin/tool").to_string_lossy().to_string()
+            tmp.path()
+                .canonicalize()
+                .unwrap()
+                .join("./bin/tool")
+                .to_string_lossy()
+                .to_string()
         );
     }
 

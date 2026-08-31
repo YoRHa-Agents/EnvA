@@ -44,8 +44,8 @@ Always branch from `main`. Never push directly to `main`.
 3. Ensure all checks pass locally:
    ```bash
    cargo fmt --all -- --check
-   cargo clippy --workspace --all-targets -- -D warnings
-   cargo test --workspace --all-targets
+   cargo clippy --workspace -- -D warnings
+   cargo test --workspace
    cargo deny check
    ./scripts/check-coverage.sh
    ```

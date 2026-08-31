@@ -1059,7 +1059,11 @@ mod tests {
             .unwrap();
         assert_eq!(
             resolved,
-            tmp.path().join("./bin/from-vault").to_string_lossy()
+            tmp.path()
+                .canonicalize()
+                .unwrap()
+                .join("./bin/from-vault")
+                .to_string_lossy()
         );
     }
 
@@ -1088,7 +1092,11 @@ mod tests {
             .unwrap();
         assert_eq!(
             resolved,
-            tmp.path().join("./bin/from-config").to_string_lossy()
+            tmp.path()
+                .canonicalize()
+                .unwrap()
+                .join("./bin/from-config")
+                .to_string_lossy()
         );
     }
 

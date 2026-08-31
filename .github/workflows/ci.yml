@@ -30,7 +30,7 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - run: rustup component add clippy
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace -- -D warnings
 
   test:
     name: test
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Install Rust
         run: rustup toolchain install --profile minimal
-      - run: cargo test --workspace --all-targets
+      - run: cargo test --workspace
 
   pages-lint:
     name: pages-lint

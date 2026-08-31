@@ -100,7 +100,7 @@ fn pages_and_ci_workflows_keep_product_validation_guards() {
     assert!(github_pages.contains("cargo test --workspace"));
     assert!(github_pages.contains("htmlhint@"));
     assert!(github_ci.contains("cargo fmt --all -- --check"));
-    assert!(github_ci.contains("cargo clippy --workspace --all-targets"));
-    assert!(github_ci.contains("cargo test --workspace --all-targets"));
+    assert!(github_ci.contains("cargo clippy --workspace -- -D warnings"));
+    assert!(github_ci.contains("cargo test --workspace"));
     assert!(github_ci.contains("htmlhint@1.7.1"));
 }

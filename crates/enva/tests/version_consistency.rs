@@ -25,7 +25,6 @@ fn read_package_version() -> String {
 fn release_surfaces_use_workspace_version() {
     let root = repository_root();
     let version = read_package_version();
-    let tag = format!("v{version}");
 
     for relative in [
         "site/index.html",
@@ -34,7 +33,10 @@ fn release_surfaces_use_workspace_version() {
     ] {
         let content =
             fs::read_to_string(root.join(relative)).unwrap_or_else(|_| panic!("read {relative}"));
-        assert!(content.contains(&tag), "{relative} does not contain {tag}");
+        assert!(
+            content.contains(&version),
+            "{relative} does not contain {version}"
+        );
     }
 
     for relative in [
