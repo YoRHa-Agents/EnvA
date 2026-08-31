@@ -1,0 +1,13 @@
+{
+  "name": "@yorha-agents/enva-linux-x64",
+  "version": "1.4.1",
+  "description": "Enva native binary for Linux x86_64",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YoRHa-Agents/EnvA.git"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/enva"]
+}
