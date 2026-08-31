@@ -1350,9 +1350,10 @@ fn update_reports_already_up_to_date_for_latest_release() {
     let downloaded = b"same-version-binary";
     let digest = sha256_hex(downloaded);
     let asset_path = format!("/downloads/{asset_name}");
+    let current_tag = format!("v{}", env!("CARGO_PKG_VERSION"));
     let release_body = serde_json::json!({
-        "tag_name": "v1.4.1",
-        "html_url": format!("{}/releases/v1.4.1", server.url()),
+        "tag_name": current_tag,
+        "html_url": format!("{}/releases/{current_tag}", server.url()),
         "assets": [{
             "name": asset_name,
             "browser_download_url": format!("{}{}", server.url(), asset_path),
@@ -1374,7 +1375,9 @@ fn update_reports_already_up_to_date_for_latest_release() {
         .env("ENVA_UPDATE_BIN_PATH", &binary_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Already up to date (v1.4.1)"));
+        .stdout(predicate::str::contains(format!(
+            "Already up to date ({current_tag})"
+        )));
 
     assert_eq!(fs::read(&binary_path).unwrap(), b"old-binary");
 }
