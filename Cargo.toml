@@ -3,12 +3,20 @@ members = [
     "crates/enva-core",
     "crates/enva",
 ]
+exclude = ["fuzz"]
 resolver = "2"
 
 [workspace.package]
 version = "1.4.1"
 edition = "2021"
 license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = "warn"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

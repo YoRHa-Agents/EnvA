@@ -3,6 +3,9 @@ name = "enva"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "enva"
 path = "src/main.rs"
