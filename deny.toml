@@ -1,8 +1,7 @@
 [advisories]
-vulnerability = "deny"
+version = 2
 unmaintained = "all"
 yanked = "deny"
-notice = "warn"
 
 [licenses]
 version = 2

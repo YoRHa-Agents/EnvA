@@ -94,13 +94,8 @@ fn pages_and_ci_workflows_keep_product_validation_guards() {
             .join("deploy-pages.yml"),
     )
     .unwrap();
-    let github_ci = fs::read_to_string(
-        repo_root()
-            .join(".github")
-            .join("workflows")
-            .join("ci.yml"),
-    )
-    .unwrap();
+    let github_ci =
+        fs::read_to_string(repo_root().join(".github").join("workflows").join("ci.yml")).unwrap();
 
     assert!(github_pages.contains("cargo test --workspace"));
     assert!(github_pages.contains("htmlhint@"));
