@@ -453,6 +453,9 @@ mod tests {
 
     #[test]
     fn load_with_explicit_config_path() {
+        let _lock = paths::process_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let cfg_path = tmp.path().join("custom.yaml");
         std::fs::write(
@@ -467,6 +470,9 @@ mod tests {
 
     #[test]
     fn env_var_overrides_vault_path() {
+        let _lock = paths::process_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         std::env::set_var("ENVA_VAULT_PATH", "/env/override.json");
         let cfg = ConfigLoader::load(None, None);
         std::env::remove_var("ENVA_VAULT_PATH");
@@ -475,6 +481,9 @@ mod tests {
 
     #[test]
     fn env_var_overrides_app() {
+        let _lock = paths::process_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         std::env::set_var("ENVA_APP", "from-env");
         let cfg = ConfigLoader::load(None, None);
         std::env::remove_var("ENVA_APP");
