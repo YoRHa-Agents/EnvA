@@ -63,7 +63,7 @@ jobs:
           echo "$RUNNER_TEMP/zig-x86_64-linux-0.15.0" >> "$GITHUB_PATH"
       - name: Build all release assets
         run: |
-          ./build.sh --serial all
+          ./build.sh all
           sha256sum release/enva-* > release/SHA256SUMS
           test "$(wc -l < release/SHA256SUMS)" -eq 3
       - name: Upload release assets
