@@ -1,0 +1,24 @@
+{
+  "name": "@yorha-agents/enva",
+  "version": "1.4.1",
+  "description": "Encrypted environment variable manager",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YoRHa-Agents/EnvA.git"
+  },
+  "bin": {
+    "enva": "bin/enva.js"
+  },
+  "optionalDependencies": {
+    "@yorha-agents/enva-linux-x64": "1.4.1",
+    "@yorha-agents/enva-linux-arm64": "1.4.1",
+    "@yorha-agents/enva-darwin-arm64": "1.4.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/enva.js"
+  ]
+}

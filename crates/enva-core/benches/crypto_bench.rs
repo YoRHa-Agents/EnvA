@@ -87,9 +87,9 @@ fn bench_hmac(c: &mut Criterion) {
 }
 
 fn bench_salt_generation(c: &mut Criterion) {
-    c.bench_function("generate_salt", |b| b.iter(|| generate_salt()));
+    c.bench_function("generate_salt", |b| b.iter(generate_salt));
 
-    c.bench_function("vault_gen_salt", |b| b.iter(|| vault_crypto::gen_salt()));
+    c.bench_function("vault_gen_salt", |b| b.iter(vault_crypto::gen_salt));
 }
 
 criterion_group!(

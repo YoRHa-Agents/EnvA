@@ -122,6 +122,14 @@ pub fn check_for_update(version: Option<&str>) -> Result<UpdateCheck, UpdateErro
 }
 
 pub fn update_binary(version: Option<&str>, force: bool) -> Result<UpdateOutcome, UpdateError> {
+    let binary_path = current_executable_path()?;
+    if !force && is_npm_managed_path(&binary_path) {
+        eprintln!(
+            "Warning: this Enva binary is managed by npm. Prefer `npm update -g @yorha-agents/enva`; \
+             use `enva update --force` only when you intentionally want to replace it directly."
+        );
+    }
+
     let resolved = resolve_release(version)?;
     if !force {
         if resolved.target_version == resolved.current_version {
@@ -139,7 +147,6 @@ pub fn update_binary(version: Option<&str>, force: bool) -> Result<UpdateOutcome
 
     let client = http_client()?;
     let bytes = download_asset(&client, &resolved.asset)?;
-    let binary_path = current_executable_path()?;
     atomically_replace_binary(&binary_path, &bytes)?;
 
     Ok(UpdateOutcome::Updated(UpdateResult {
@@ -328,6 +335,11 @@ fn current_executable_path() -> Result<PathBuf, UpdateError> {
     })
 }
 
+fn is_npm_managed_path(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "node_modules")
+}
+
 fn platform_asset_name() -> Result<String, UpdateError> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -407,5 +419,13 @@ mod tests {
         if std::env::consts::OS == "linux" && std::env::consts::ARCH == "x86_64" {
             assert_eq!(platform_asset_name().unwrap(), "enva-linux-x86_64");
         }
+    }
+
+    #[test]
+    fn npm_managed_paths_are_detected() {
+        assert!(is_npm_managed_path(Path::new(
+            "/usr/local/lib/node_modules/@yorha-agents/enva/bin/enva"
+        )));
+        assert!(!is_npm_managed_path(Path::new("/usr/local/bin/enva")));
     }
 }

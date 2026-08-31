@@ -1,0 +1,47 @@
+name: Release preparation
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the v prefix"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+      - name: Prepare release branch
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          ./scripts/bump_version.sh "$VERSION"
+          ./scripts/check-release-version.sh "$VERSION"
+          branch="release/v${VERSION#v}"
+          git switch -c "$branch"
+          git add Cargo.toml CHANGELOG.md site/index.html site/demo.html \
+            crates/enva/web/index.html npm/
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "release: prepare v${VERSION#v}"
+          git push --set-upstream origin "$branch"
+          printf '%s\n' "$branch" > "$RUNNER_TEMP/release-branch"
+      - name: Open release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          branch="release/v${VERSION#v}"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "release: v${VERSION#v}" \
+            --body "Automated release preparation for v${VERSION#v}. CI must pass before merge."

@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.4.2"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  validate:
+    name: validate release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+      - name: Validate tag and version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          git fetch origin main --depth=1
+          tag_sha="$(git rev-list -n 1 "$RELEASE_TAG" 2>/dev/null || true)"
+          if [[ -z "$tag_sha" ]]; then
+            tag_sha="$GITHUB_SHA"
+          fi
+          if ! git merge-base --is-ancestor "$tag_sha" origin/main; then
+            echo "$RELEASE_TAG does not point to a commit reachable from main." >&2
+            exit 1
+          fi
+          ./scripts/check-release-version.sh "$RELEASE_TAG"
+
+  build:
+    name: build release assets
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install cross-build dependencies
+        run: |
+          rustup toolchain install --profile minimal
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-apple-darwin
+          cargo install cargo-zigbuild --locked
+          curl -fsSL https://ziglang.org/download/0.15.0/zig-x86_64-linux-0.15.0.tar.xz \
+            -o "$RUNNER_TEMP/zig.tar.xz"
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-x86_64-linux-0.15.0" >> "$GITHUB_PATH"
+      - name: Build all release assets
+        run: |
+          ./build.sh --serial all
+          sha256sum release/enva-* > release/SHA256SUMS
+          test "$(wc -l < release/SHA256SUMS)" -eq 3
+      - name: Upload release assets
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: release-assets
+          path: release/
+          if-no-files-found: error
+
+  macos-e2e:
+    name: macOS release e2e
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-assets
+          path: release
+      - name: Run macOS end-to-end suite
+        run: |
+          chmod +x release/enva-macos-aarch64
+          ./scripts/test-macos.sh release/enva-macos-aarch64
+
+  publish-release:
+    name: publish GitHub release
+    needs: macos-e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-assets
+          path: release
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" release/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Enva $RELEASE_TAG" \
+              --generate-notes
+          fi
+
+  npm-publish:
+    name: publish npm packages
+    needs: publish-release
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets: inherit

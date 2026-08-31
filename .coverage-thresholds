@@ -1,0 +1,4 @@
+# Coverage floors are line percentages. Refresh with:
+#   ./scripts/check-coverage.sh --baseline
+global_lines=70
+enva_core_lines=75

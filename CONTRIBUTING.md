@@ -8,7 +8,7 @@ Thank you for your interest in contributing to Enva. This document outlines the 
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) 1.85 or later
+- [Rust](https://rustup.rs/) 1.98.0 or later (pinned by `rust-toolchain.toml`)
 - Git
 
 ### Setup
@@ -41,20 +41,27 @@ Always branch from `main`. Never push directly to `main`.
 
 1. Create a feature branch from `main`
 2. Write or update tests for your changes
-3. Ensure all checks pass:
+3. Ensure all checks pass locally:
    ```bash
    cargo fmt --all -- --check
    cargo clippy --workspace -- -D warnings
    cargo test --workspace
+   cargo deny check
+   ./scripts/check-coverage.sh
    ```
+   These commands mirror the required jobs in
+   [GitHub Actions](.github/workflows/ci.yml). GitHub is the authoritative CI
+   platform for this repository.
 4. Open a PR with a clear description of what and why
 5. Address review feedback
 
 ### PR Checklist
 
-- [ ] Tests pass locally (`cargo test --workspace`)
+- [ ] Tests pass locally (`cargo test --workspace --all-targets`)
 - [ ] Code formatted (`cargo fmt --all`)
 - [ ] No clippy warnings (`cargo clippy --workspace -- -D warnings`)
+- [ ] Dependency policy passes (`cargo deny check`)
+- [ ] Coverage floors pass (`./scripts/check-coverage.sh`)
 - [ ] Documentation updated if applicable
 - [ ] Changelog entry added for user-facing changes
 

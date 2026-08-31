@@ -1,0 +1,36 @@
+name: Fuzzing
+
+on:
+  schedule:
+    - cron: "30 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install nightly and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo +nightly install cargo-fuzz --locked
+      - name: Fuzz vault JSON
+        working-directory: fuzz
+        run: cargo +nightly fuzz run vault_json -- -max_total_time=600
+      - name: Fuzz import formats
+        working-directory: fuzz
+        run: cargo +nightly fuzz run import_formats -- -max_total_time=600
+      - name: Fuzz key material
+        working-directory: fuzz
+        run: cargo +nightly fuzz run key_material -- -max_total_time=600
+      - name: Upload fuzz evidence
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: fuzz-${{ github.run_id }}
+          path: fuzz/artifacts/
+          if-no-files-found: warn

@@ -71,7 +71,8 @@ INSTALL_DIR=/usr/local/bin bash install.sh
 
 ### Option B: Build from Source
 
-Requires [Rust](https://rustup.rs/) 1.85 or later.
+Requires [Rust](https://rustup.rs/) 1.98.0 or later. The repository pins the
+toolchain in `rust-toolchain.toml`.
 
 ```bash
 git clone https://github.com/YoRHa-Agents/EnvA.git && cd EnvA
@@ -85,6 +86,17 @@ sudo cp target/release/enva /usr/local/bin/
 ./build.sh linux-x86_64
 ./build.sh all
 ```
+
+### Option D: Install from npm
+
+```bash
+npm install -g @yorha-agents/enva
+```
+
+The npm package selects the matching native binary for Linux x86_64, Linux
+aarch64, or macOS Apple Silicon. npm releases are published with provenance;
+the native package is the source of the binary, so use `npm update -g
+@yorha-agents/enva` to upgrade an npm installation.
 
 ### Verify Installation
 

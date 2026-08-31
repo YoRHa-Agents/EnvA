@@ -1,0 +1,36 @@
+[package]
+name = "enva-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+enva-core = { path = "../crates/enva-core" }
+serde_json = "1"
+serde_yaml = "0.9"
+secrecy = "0.10"
+
+[[bin]]
+name = "vault_json"
+path = "fuzz_targets/vault_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_formats"
+path = "fuzz_targets/import_formats.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "key_material"
+path = "fuzz_targets/key_material.rs"
+test = false
+doc = false
+bench = false

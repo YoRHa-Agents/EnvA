@@ -1,0 +1,32 @@
+name: macOS end-to-end
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, for example v1.4.2"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Download release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p release
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'enva-macos-aarch64' \
+            --dir release
+      - name: Run macOS end-to-end suite
+        run: |
+          chmod +x release/enva-macos-aarch64
+          ./scripts/test-macos.sh release/enva-macos-aarch64
