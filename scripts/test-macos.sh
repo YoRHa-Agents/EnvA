@@ -11,6 +11,10 @@ PASS_COUNT=0
 FAIL_COUNT=0
 RESULTS=()
 
+if [[ "$ENVA" != /* ]]; then
+    ENVA="$(cd "$(dirname "$ENVA")" && pwd)/$(basename "$ENVA")"
+fi
+
 cleanup() {
     [ -d "${TEST_DIR:-}" ] && rm -rf "$TEST_DIR"
     [ -d "$HOME/.enva.test-backup" ] && {
@@ -130,10 +134,10 @@ echo "$PW" | $ENVA vault assign s3 --app runapp --vault "$VP" --password-stdin >
 DRY=$(echo "$PW" | $ENVA --vault "$VP" --password-stdin runapp 2>/dev/null)
 assert "dry-run shows redacted" 'echo "$DRY" | grep -q "<redacted>"'
 
-EXEC_OUT=$(echo "$PW" | $ENVA --vault "$VP" --password-stdin runapp -- printenv S1_KEY 2>/dev/null)
+EXEC_OUT=$(echo "$PW" | $ENVA --cmd 'printenv S1_KEY' --vault "$VP" --password-stdin runapp 2>/dev/null)
 assert "exec injects env var" '[ "$EXEC_OUT" = "val1" ]'
 
-MULTI=$(echo "$PW" | $ENVA --vault "$VP" --password-stdin runapp -- sh -c "echo \$S1_KEY \$S2_KEY \$S3_KEY" 2>/dev/null)
+MULTI=$(echo "$PW" | $ENVA --cmd 'printf "%s %s %s" "$S1_KEY" "$S2_KEY" "$S3_KEY"' --vault "$VP" --password-stdin runapp 2>/dev/null)
 assert "multi-var injection" '[ "$MULTI" = "val1 val2 val3" ]'
 
 QUIET_OUT=$(echo "$PW" | $ENVA --quiet --vault "$VP" --password-stdin vault set qx -k QX -V qv 2>&1)
