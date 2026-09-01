@@ -24,7 +24,7 @@ jobs:
     name: validate release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
       - name: Validate tag and version
@@ -52,7 +52,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install cross-build dependencies
         run: |
           rustup toolchain install --profile minimal
@@ -67,7 +67,7 @@ jobs:
           ./build.sh linux-x86_64 linux-aarch64
           test "$(ls release/enva-* | wc -l)" -eq 2
       - name: Upload release assets
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: linux-assets
           path: release/
@@ -78,7 +78,7 @@ jobs:
     needs: validate
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - name: Build macOS asset
@@ -86,7 +86,7 @@ jobs:
           ./build.sh macos-aarch64
           test -f release/enva-macos-aarch64
       - name: Upload macOS asset
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-assets
           path: release/
@@ -97,14 +97,14 @@ jobs:
     needs: [build-linux, build-macos]
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Download Linux release assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: linux-assets
           path: release
       - name: Download macOS release asset
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: macos-assets
           path: release
@@ -122,7 +122,7 @@ jobs:
           shasum -a 256 -c SHA256SUMS
           cat SHA256SUMS
       - name: Upload tested release assets
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-assets
           path: release/
@@ -133,7 +133,7 @@ jobs:
     needs: macos-e2e
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: release-assets
           path: release
