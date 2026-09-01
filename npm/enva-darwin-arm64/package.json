@@ -1,6 +1,6 @@
 {
   "name": "@yorha-agents/enva-darwin-arm64",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "Enva native binary for macOS Apple Silicon",
   "license": "MIT",
   "repository": {
