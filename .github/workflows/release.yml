@@ -65,8 +65,7 @@ jobs:
       - name: Build all release assets
         run: |
           ./build.sh linux-x86_64 linux-aarch64
-          sha256sum release/enva-* > release/SHA256SUMS
-          test "$(wc -l < release/SHA256SUMS)" -eq 2
+          test "$(ls release/enva-* | wc -l)" -eq 2
       - name: Upload release assets
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
@@ -85,7 +84,7 @@ jobs:
       - name: Build macOS asset
         run: |
           ./build.sh macos-aarch64
-          shasum -a 256 release/enva-macos-aarch64 > release/SHA256SUMS
+          test -f release/enva-macos-aarch64
       - name: Upload macOS asset
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
@@ -113,6 +112,15 @@ jobs:
         run: |
           chmod +x release/enva-macos-aarch64
           ./scripts/test-macos.sh release/enva-macos-aarch64
+      - name: Generate combined checksums
+        working-directory: release
+        run: |
+          # Both build jobs land here, so the manifest can only be complete once
+          # every platform asset is present. Names stay bare for `shasum -c`.
+          shasum -a 256 enva-* > SHA256SUMS
+          test "$(wc -l < SHA256SUMS)" -eq 3
+          shasum -a 256 -c SHA256SUMS
+          cat SHA256SUMS
       - name: Upload tested release assets
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:

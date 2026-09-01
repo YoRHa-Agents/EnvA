@@ -40,8 +40,19 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           branch="release/v${VERSION#v}"
-          gh pr create \
+          if gh pr create \
             --base main \
             --head "$branch" \
             --title "release: v${VERSION#v}" \
-            --body "Automated release preparation for v${VERSION#v}. CI must pass before merge."
+            --body "Automated release preparation for v${VERSION#v}. CI must pass before merge."; then
+            exit 0
+          fi
+          # Some organizations forbid Actions from opening pull requests; the prepared
+          # branch is already pushed, so fall back to manual creation instead of failing.
+          {
+            echo "### Release branch ready"
+            echo
+            echo "Automatic pull request creation was rejected, so open it manually:"
+            echo
+            echo "https://github.com/$GITHUB_REPOSITORY/compare/main...$branch?expand=1"
+          } >> "$GITHUB_STEP_SUMMARY"
