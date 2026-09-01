@@ -52,9 +52,11 @@ content = changelog.read_text()
 if f"## [{version}]" not in content:
     today = datetime.date.today().isoformat()
     entry = f"## [{version}] - {today}\n\n- Release preparation.\n\n"
-    marker = "# Changelog\n"
+    # Keep a Changelog ordering: the new section belongs directly below
+    # [Unreleased], not above the file's introductory prose.
+    marker = "## [Unreleased]\n"
     if marker not in content:
-        raise SystemExit("CHANGELOG.md is missing its header")
+        raise SystemExit("CHANGELOG.md is missing its [Unreleased] section")
     content = content.replace(marker, marker + "\n" + entry, 1)
     changelog.write_text(content)
 
