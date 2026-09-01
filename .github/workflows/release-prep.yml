@@ -19,6 +19,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+      # bump_version.sh refreshes Cargo.lock, which needs the pinned toolchain
+      # to be present rather than downloaded mid-script.
+      - name: Install Rust
+        run: rustup toolchain install --profile minimal
       - name: Prepare release branch
         env:
           VERSION: ${{ inputs.version }}
@@ -27,7 +31,9 @@ jobs:
           ./scripts/check-release-version.sh "$VERSION"
           branch="release/v${VERSION#v}"
           git switch -c "$branch"
-          git add Cargo.toml CHANGELOG.md site/index.html site/demo.html \
+          # Cargo.lock records the workspace versions, and CI checks it with
+          # --locked, so the refreshed lock has to travel with the bump.
+          git add Cargo.toml Cargo.lock CHANGELOG.md site/index.html site/demo.html \
             crates/enva/web/index.html npm/
           git -c user.name="github-actions[bot]" \
             -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \

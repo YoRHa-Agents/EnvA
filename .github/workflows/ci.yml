@@ -21,6 +21,11 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - run: cargo fmt --all -- --check
+      # A stale lockfile still builds, because cargo silently rewrites it, so
+      # the drift only shows up as an unexpected modification in everyone's
+      # tree. --locked is the only thing that actually refuses.
+      - name: Check Cargo.lock is up to date
+        run: cargo metadata --locked --format-version 1 > /dev/null
 
   clippy:
     name: clippy

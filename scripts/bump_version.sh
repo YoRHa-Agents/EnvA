@@ -68,3 +68,14 @@ if f"## [{version}]" not in content:
 
 print(f"Updated release surfaces to {version}.")
 PY
+
+# Cargo.lock records the workspace crates' own versions, so leaving it behind
+# means the committed lockfile disagrees with Cargo.toml and the next build
+# anyone runs leaves them with a dirty tree.
+if command -v cargo >/dev/null 2>&1; then
+  (cd "$ROOT" && cargo update --workspace --offline >/dev/null 2>&1 \
+    || cargo update --workspace >/dev/null)
+  echo "Refreshed Cargo.lock."
+else
+  echo "cargo not found; Cargo.lock still needs refreshing." >&2
+fi
