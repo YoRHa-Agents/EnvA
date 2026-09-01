@@ -14,11 +14,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rm -rf "$output_dir"
 mkdir -p "$output_dir"
 
-declare -A assets=(
-  [enva-linux-x64]=enva-linux-x86_64
-  [enva-linux-arm64]=enva-linux-aarch64
-  [enva-darwin-arm64]=enva-macos-aarch64
-)
+asset_for_package() {
+  case "$1" in
+    enva-linux-x64) printf '%s\n' enva-linux-x86_64 ;;
+    enva-linux-arm64) printf '%s\n' enva-linux-aarch64 ;;
+    enva-darwin-arm64) printf '%s\n' enva-macos-aarch64 ;;
+    *) echo "unknown platform package: $1" >&2; exit 1 ;;
+  esac
+}
 
 for package in enva enva-linux-x64 enva-linux-arm64 enva-darwin-arm64; do
   source_dir="$ROOT/npm/$package"
@@ -31,7 +34,7 @@ for package in enva enva-linux-x64 enva-linux-arm64 enva-darwin-arm64; do
     continue
   fi
   mkdir -p "$destination/bin"
-  asset="${assets[$package]}"
+  asset="$(asset_for_package "$package")"
   if [[ ! -f "$release_dir/$asset" ]]; then
     echo "missing release asset: $release_dir/$asset" >&2
     exit 1
