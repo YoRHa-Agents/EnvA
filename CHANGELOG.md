@@ -8,7 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [1.4.4] - 2026-09-01
 
-- Release preparation.
+### Changed
+
+- **Crypto stack upgraded to the RustCrypto `digest` 0.11 generation**: `aes-gcm` 0.11, `argon2` 0.6, `hkdf` and `hmac` 0.13, `sha2` 0.11, and `rand` 0.10. The vault's on-disk format is unchanged — vaults written by earlier releases decrypt as-is, and values written by this release are still readable by 1.4.3, so downgrading stays safe.
+- **Dependencies**: `criterion` 0.8, `jsonwebtoken` 11, `tower-http` 0.7, `base64` 0.23, and all GitHub Actions repinned to current releases.
+
+### Added
+
+- **Crypto known-answer vectors**: Argon2id key derivation, alias-bound AES-256-GCM ciphertexts, HMAC-SHA256 integrity tags, and HKDF-SHA256 payloads are now asserted byte-for-byte against vectors captured from a previous release. A dependency upgrade that would silently orphan existing vaults now fails CI instead.
+
+### Fixed
+
+- **Malformed vault IV**: A stored `ENC[...]` entry whose IV is the wrong length now reports an invalid ENC format instead of relying on a helper that panics.
+- **v1.4.2 checksum manifest**: The published `SHA256SUMS` for v1.4.2 listed only one of the three binaries, under a stale `release/` path prefix. It has been regenerated in place; the binaries themselves are untouched.
 
 ## [1.4.3] - 2026-09-01
 
@@ -261,7 +273,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.4.4...HEAD
+[1.4.4]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.4
 [1.4.3]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.3
 [1.4.2]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.2
 [1.4.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.1
