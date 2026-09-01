@@ -17,7 +17,7 @@ jobs:
     name: fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - run: cargo fmt --all -- --check
@@ -26,7 +26,7 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - run: rustup component add clippy
@@ -36,7 +36,7 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - run: cargo test --workspace
@@ -45,7 +45,7 @@ jobs:
     name: pages-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Validate HTML
         run: npx --yes htmlhint@1.7.1 'site/**/*.html'
 
@@ -53,7 +53,7 @@ jobs:
     name: deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - name: Install cargo-deny
@@ -64,7 +64,7 @@ jobs:
     name: coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - name: Install LLVM coverage tooling
@@ -74,7 +74,7 @@ jobs:
       - name: Generate coverage report and enforce floors
         run: ./scripts/check-coverage.sh
       - name: Upload coverage reports
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: coverage
           path: target/coverage/
@@ -84,7 +84,7 @@ jobs:
     name: bench-compile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust
         run: rustup toolchain install --profile minimal
       - run: cargo bench --workspace --no-run
