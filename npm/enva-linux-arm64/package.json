@@ -1,6 +1,6 @@
 {
   "name": "@yorha-agents/enva-linux-arm64",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Enva native binary for Linux aarch64",
   "license": "MIT",
   "repository": {
