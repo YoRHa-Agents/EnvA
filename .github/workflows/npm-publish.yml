@@ -11,6 +11,14 @@ on:
         description: "Existing GitHub Release tag, for example v1.4.2"
         required: true
         type: string
+      correlation_id:
+        description: "Set by release.yml so it can identify this run; leave empty when dispatching by hand"
+        required: false
+        type: string
+
+run-name: >-
+  npm publish ${{ inputs.tag }}${{ inputs.correlation_id && format(' [{0}]',
+  inputs.correlation_id) || '' }}
 
 permissions:
   contents: read

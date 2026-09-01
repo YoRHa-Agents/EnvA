@@ -169,11 +169,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # The dispatch API does not return the run it created, so the run
+          # advertises this id in its name and we match on that. Matching by
+          # timestamp alone would let a concurrent publish be watched instead.
+          correlation="release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           gh workflow run npm-publish.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref "$GITHUB_REF_NAME" \
-            -f tag="$RELEASE_TAG"
+            -f tag="$RELEASE_TAG" \
+            -f correlation_id="$correlation"
 
           run_id=""
           for _ in $(seq 1 30); do
@@ -182,12 +186,13 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --workflow npm-publish.yml \
               --event workflow_dispatch \
-              --created ">=$started_at" \
-              --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+              --limit 50 \
+              --json databaseId,displayTitle \
+              --jq "[.[] | select(.displayTitle | contains(\"[$correlation]\"))] | .[0].databaseId // empty")"
             [[ -n "$run_id" ]] && break
           done
           if [[ -z "$run_id" ]]; then
-            echo "npm-publish.yml was dispatched but its run never appeared." >&2
+            echo "npm-publish.yml was dispatched but no run advertised $correlation." >&2
             exit 1
           fi
 
