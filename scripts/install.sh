@@ -71,8 +71,8 @@ verify_checksum() {
     fi
 
     if command -v gh >/dev/null 2>&1; then
-        gh release download "${RELEASE_TAG:-}" --repo "$REPO" --pattern SHA256SUMS \
-            --output "$sums_path" --clobber >/dev/null 2>&1 || {
+        gh release download ${RELEASE_TAG:+"$RELEASE_TAG"} --repo "$REPO" \
+            --pattern SHA256SUMS --output "$sums_path" --clobber >/dev/null 2>&1 || {
             echo "Could not download SHA256SUMS for verification." >&2
             exit 1
         }
