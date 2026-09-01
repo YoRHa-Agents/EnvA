@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install nightly and cargo-fuzz
         run: |
           rustup toolchain install nightly --profile minimal
@@ -29,7 +29,7 @@ jobs:
         run: cargo +nightly fuzz run key_material -- -max_total_time=600
       - name: Upload fuzz evidence
         if: always()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: fuzz-${{ github.run_id }}
           path: fuzz/artifacts/
