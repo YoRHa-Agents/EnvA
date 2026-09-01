@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [1.4.5] - 2026-09-01
 
-- Release preparation.
+### Fixed
+
+- **npm publishing now succeeds without a manual re-dispatch**: `release.yml` reached npm through `workflow_call`, and npm's trusted publishing validates the *calling* workflow, so the registry saw `release.yml` while the registered publisher names `npm-publish.yml` and rejected every automated publish with `ENEEDAUTH`. The release now dispatches `npm-publish.yml` as its own run — matching the identity the publisher expects — and watches it for the exit status, so a failed publish still turns the release red. `npm-publish.yml` no longer exposes a `workflow_call` trigger, and the run it dispatches is located by correlation id rather than by timestamp so a concurrent publish cannot be mistaken for it.
 
 ## [1.4.4] - 2026-09-01
 
@@ -277,7 +279,8 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.4.4...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.4.5...HEAD
+[1.4.5]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.5
 [1.4.4]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.4
 [1.4.3]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.3
 [1.4.2]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.2
