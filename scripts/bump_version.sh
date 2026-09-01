@@ -52,10 +52,18 @@ content = changelog.read_text()
 if f"## [{version}]" not in content:
     today = datetime.date.today().isoformat()
     entry = f"## [{version}] - {today}\n\n- Release preparation.\n\n"
-    marker = "# Changelog\n"
-    if marker not in content:
-        raise SystemExit("CHANGELOG.md is missing its header")
-    content = content.replace(marker, marker + "\n" + entry, 1)
+    # Keep a Changelog ordering: the new section goes after the whole
+    # [Unreleased] block, so anything already noted as unreleased is not
+    # swallowed by the new heading, and never above the intro prose.
+    marker = re.search(r"(?m)^## \[Unreleased\][^\n]*\n", content)
+    if not marker:
+        raise SystemExit("CHANGELOG.md is missing its [Unreleased] section")
+    following = re.compile(r"(?m)^## \[").search(content, marker.end())
+    insert_at = following.start() if following else len(content)
+    head = content[:insert_at]
+    if not head.endswith("\n\n"):
+        head += "\n"
+    content = head + entry + content[insert_at:]
     changelog.write_text(content)
 
 print(f"Updated release surfaces to {version}.")

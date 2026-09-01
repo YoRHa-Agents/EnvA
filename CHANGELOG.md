@@ -1,15 +1,41 @@
 # Changelog
 
-## [1.4.2] - 2026-08-31
-
-- Release preparation.
-
-
 All notable changes to [Enva](https://github.com/YoRHa-Agents/EnvA) are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.4.3] - 2026-09-01
+
+### Fixed
+
+- **Release checksum manifest**: `SHA256SUMS` is now generated once after every platform binary is present, instead of separately by each build job where the second artifact download overwrote the first. The v1.4.2 manifest listed only one binary and prefixed it with a stale `release/` path; entries now use bare filenames so `shasum -a 256 -c SHA256SUMS` works directly in the download directory.
+- **npm packaging on macOS**: `scripts/prepare-npm-packages.sh` no longer relies on a bash 4 associative array, which aborted on the macOS runner's bash 3.2.
+- **Release automation permissions**: `auto-tag-release.yml` now requests the `actions: write` scope it needs to dispatch the release workflow, and `release-prep.yml` degrades to a manual compare link where organization policy forbids Actions from opening pull requests instead of failing the run.
+- **Changelog ordering**: `scripts/bump_version.sh` inserts new release sections below `[Unreleased]` rather than above the file's introductory prose.
+
+## [1.4.2] - 2026-08-31
+
+### Added
+
+- **npm distribution**: Enva is now installable with `npm install -g @yorha-agents/enva`. The main package is a thin shim that resolves a platform package (`@yorha-agents/enva-linux-x64`, `@yorha-agents/enva-linux-arm64`, `@yorha-agents/enva-darwin-arm64`) declared through `os`/`cpu` and `optionalDependencies`. Publishing runs on npm trusted publishing (OIDC) with build provenance.
+- **GitHub Actions CI**: PR and `main` gates for `cargo fmt`, `cargo clippy -D warnings`, `cargo test`, `cargo deny`, HTML lint, coverage floors, and benchmark compilation, aggregated behind a single `CI status` check. GitHub is now the sole authoritative CI; `.gitlab-ci.yml` was removed.
+- **Three-stage release pipeline**: `release-prep.yml` bumps every version surface and opens a release branch, `auto-tag-release.yml` tags once the version lands on `main`, and `release.yml` cross-compiles all three targets, runs the macOS end-to-end suite against the real binary, publishes the GitHub Release, then hands off to `npm-publish.yml`.
+- **Coverage, fuzz, and benchmark gates**: Blocking coverage floors for the workspace and `enva-core`, three `cargo-fuzz` targets (vault JSON parsing, import formats, key material), and a weekly benchmark run that archives criterion output.
+- **Supply-chain policy**: `deny.toml` advisory/license/source policy, Dependabot for `cargo` and `github-actions`, and SHA-pinned third-party actions.
+- **Version consistency test**: A Rust test asserts the crate version matches the marketing site, the embedded web UI, and all four npm manifests.
+
+### Changed
+
+- **Toolchain pinned to Rust 1.98.0** via `rust-toolchain.toml`, with workspace-level lints (`unsafe_code = "forbid"`) inherited by both crates, and MSRV documentation updated to match.
+- **`jsonwebtoken` now uses the `aws_lc_rs` backend** instead of `rust_crypto`, dropping the vulnerable `rsa` dependency.
+
+### Fixed
+
+- **`enva update` under npm**: Updating a binary installed through npm now warns and points at `npm update -g @yorha-agents/enva` rather than silently replacing a package-managed file. `--force` bypasses the guard.
+- **Environment-dependent config tests** no longer race on process-global environment variables when the suite runs in parallel.
+- **Single-platform builds**: `build.sh` resolves one explicitly requested target instead of failing on an empty deduplication result.
 
 ## [1.4.1] - 2026-04-12
 
@@ -231,7 +257,10 @@ First stable release of the Enva CLI and vault tooling.
 
 - Prebuilt binaries for this release: `enva-linux-x86_64`, `enva-linux-aarch64`, `enva-macos-aarch64`. Verify with `SHA256SUMS` attached to the GitHub release.
 
-[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/YoRHa-Agents/EnvA/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.3
+[1.4.2]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.2
+[1.4.1]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.1
 [1.4.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.4.0
 [1.3.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.3.0
 [1.2.0]: https://github.com/YoRHa-Agents/EnvA/releases/tag/v1.2.0
