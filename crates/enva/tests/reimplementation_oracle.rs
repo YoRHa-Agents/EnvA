@@ -81,6 +81,19 @@ fn release_scripts_keep_asset_contract_and_install_self_test() {
     assert!(install_script.contains("RWC_POST_INSTALL_HOOK"));
     assert!(install_script.contains("ENVA_POST_INSTALL_HOOK"));
     assert!(install_script.contains("vault self-test"));
+
+    // The installer must keep consuming the release's checksum manifest, and
+    // must do so before the binary is made executable or ad-hoc signed.
+    assert!(install_script.contains("SHA256SUMS"));
+    assert!(install_script.contains("Checksum mismatch"));
+    let verify_at = install_script
+        .find("verify_checksum \"$INSTALL_DIR")
+        .unwrap();
+    let chmod_at = install_script.find("chmod +x \"$INSTALL_DIR").unwrap();
+    assert!(
+        verify_at < chmod_at,
+        "install.sh must verify the checksum before making the binary executable"
+    );
     assert!(smoke_script.contains("vault self-test"));
     assert!(smoke_script.contains("update --help"));
 }
