@@ -22,6 +22,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install Node with an OIDC-capable npm
+        # Trusted publishing needs npm >= 11.5.1; the runner image ships npm 10,
+        # which silently falls back to token auth and fails with ENEEDAUTH.
+        # registry-url is deliberately omitted: it writes an .npmrc _authToken
+        # placeholder that makes npm take the token path and skip OIDC entirely.
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+      - name: Verify npm can use trusted publishing
+        run: |
+          npm_version="$(npm --version)"
+          echo "npm $npm_version"
+          if [[ "$(printf '%s\n11.5.1\n' "$npm_version" | sort -V | head -1)" != "11.5.1" ]]; then
+            echo "npm $npm_version cannot use trusted publishing; need >= 11.5.1." >&2
+            exit 1
+          fi
+          if [[ -n "${NPM_CONFIG_USERCONFIG:-}" ]] \
+            && grep -q '_authToken' "$NPM_CONFIG_USERCONFIG" 2>/dev/null; then
+            echo "An .npmrc _authToken entry is present; npm would skip OIDC." >&2
+            exit 1
+          fi
       - name: Download GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}
