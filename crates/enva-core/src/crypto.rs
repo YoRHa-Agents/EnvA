@@ -7,7 +7,7 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
-use rand::RngCore;
+use rand::Rng;
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
 
@@ -73,11 +73,11 @@ impl SecretsCrypto {
             Aes256Gcm::new_from_slice(&derived).map_err(|_| CryptoError::EncryptionFailed)?;
 
         let mut nonce_bytes = [0u8; NONCE_SIZE];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from(nonce_bytes);
 
         let ciphertext = cipher
-            .encrypt(nonce, plaintext)
+            .encrypt(&nonce, plaintext)
             .map_err(|_| CryptoError::EncryptionFailed)?;
 
         let mut output = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
@@ -104,10 +104,10 @@ impl SecretsCrypto {
         let derived = self.derive_key(salt)?;
         let cipher =
             Aes256Gcm::new_from_slice(&derived).map_err(|_| CryptoError::DecryptionFailed)?;
-        let nonce = Nonce::from_slice(nonce_bytes);
+        let nonce = Nonce::try_from(nonce_bytes).map_err(|_| CryptoError::PayloadTooShort)?;
 
         cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|_| CryptoError::DecryptionFailed)
     }
 
@@ -125,7 +125,7 @@ impl SecretsCrypto {
 /// Generates a cryptographically random salt of [`SALT_SIZE`] bytes.
 pub fn generate_salt() -> Vec<u8> {
     let mut salt = vec![0u8; SALT_SIZE];
-    rand::thread_rng().fill_bytes(&mut salt);
+    rand::rng().fill_bytes(&mut salt);
     salt
 }
 
