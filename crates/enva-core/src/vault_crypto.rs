@@ -13,8 +13,8 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::Argon2;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use hmac::Mac;
-use rand::RngCore;
+use hmac::{KeyInit as MacKeyInit, Mac};
+use rand::Rng;
 use sha2::Sha256;
 use zeroize::Zeroize;
 
@@ -81,8 +81,8 @@ pub fn encrypt_value(
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| VaultCryptoError::EncryptionFailed)?;
 
     let mut nonce_bytes = [0u8; NONCE_SIZE];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
     let aad = format!("secrets:{alias}");
     let payload = Payload {
@@ -91,7 +91,7 @@ pub fn encrypt_value(
     };
 
     let ciphertext_with_tag = cipher
-        .encrypt(nonce, payload)
+        .encrypt(&nonce, payload)
         .map_err(|_| VaultCryptoError::EncryptionFailed)?;
 
     let ct_len = ciphertext_with_tag.len() - TAG_SIZE;
@@ -130,7 +130,9 @@ pub fn decrypt_value(
     }
 
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| VaultCryptoError::DecryptionFailed)?;
-    let nonce = Nonce::from_slice(&iv);
+    let nonce = Nonce::try_from(iv.as_slice()).map_err(|_| {
+        VaultCryptoError::InvalidEncFormat(format!("IV must be {NONCE_SIZE} bytes"))
+    })?;
 
     let mut ciphertext_with_tag = Vec::with_capacity(data.len() + tag.len());
     ciphertext_with_tag.extend_from_slice(&data);
@@ -143,7 +145,7 @@ pub fn decrypt_value(
     };
 
     let plaintext = cipher
-        .decrypt(nonce, payload)
+        .decrypt(&nonce, payload)
         .map_err(|_| VaultCryptoError::DecryptionFailed)?;
 
     String::from_utf8(plaintext).map_err(|_| VaultCryptoError::DecryptionFailed)
@@ -152,7 +154,7 @@ pub fn decrypt_value(
 /// Generates a cryptographically random salt of [`SALT_SIZE`] bytes.
 pub fn gen_salt() -> Vec<u8> {
     let mut salt = vec![0u8; SALT_SIZE];
-    rand::thread_rng().fill_bytes(&mut salt);
+    rand::rng().fill_bytes(&mut salt);
     salt
 }
 
@@ -161,7 +163,7 @@ pub fn compute_hmac(
     hmac_key: &[u8; HMAC_KEY_SIZE],
     data: &[u8],
 ) -> Result<Vec<u8>, VaultCryptoError> {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
+    let mut mac = <HmacSha256 as MacKeyInit>::new_from_slice(hmac_key)
         .map_err(|_| VaultCryptoError::KdfFailed("invalid HMAC key length".into()))?;
     mac.update(data);
     Ok(mac.finalize().into_bytes().to_vec())
@@ -173,7 +175,7 @@ pub fn verify_hmac(
     data: &[u8],
     expected: &[u8],
 ) -> Result<bool, VaultCryptoError> {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
+    let mut mac = <HmacSha256 as MacKeyInit>::new_from_slice(hmac_key)
         .map_err(|_| VaultCryptoError::KdfFailed("invalid HMAC key length".into()))?;
     mac.update(data);
     Ok(mac.verify_slice(expected).is_ok())

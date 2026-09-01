@@ -8,7 +8,7 @@ use std::path::Path;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chrono::Utc;
 use enva_core::vault_crypto;
-use rand::RngCore;
+use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -199,7 +199,7 @@ fn now_iso() -> String {
 
 fn generate_prefixed_id(prefix: &str) -> String {
     let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let mut encoded = String::with_capacity(prefix.len() + bytes.len() * 2);
     encoded.push_str(prefix);
     for byte in bytes {

@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use rand::RngCore;
+use rand::Rng;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -163,7 +163,7 @@ impl AppState {
         remote_sync: Arc<dyn RemoteSyncExecutor>,
     ) -> Arc<Self> {
         let mut secret = vec![0u8; 32];
-        rand::thread_rng().fill_bytes(&mut secret);
+        rand::rng().fill_bytes(&mut secret);
         Arc::new(Self {
             vault_path: RwLock::new(vault_path),
             auth: AuthManager::new(&secret),

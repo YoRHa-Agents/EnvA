@@ -1,7 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use enva_core::crypto::{generate_salt, SecretsCrypto};
 use enva_core::vault_crypto;
 use secrecy::SecretString;
+use std::hint::black_box;
 
 fn bench_master_key() -> SecretString {
     SecretString::from("a]32-byte-bench-master-key-value!".to_owned())
