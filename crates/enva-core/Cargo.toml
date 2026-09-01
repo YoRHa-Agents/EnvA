@@ -12,15 +12,15 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-aes-gcm = "0.10"
-argon2 = "0.5"
-hkdf = "0.12"
-hmac = "0.12"
-sha2 = "0.10"
+aes-gcm = "0.11"
+argon2 = "0.6"
+hkdf = "0.13"
+hmac = "0.13"
+sha2 = "0.11"
 secrecy = { version = "0.10", features = ["serde"] }
 zeroize = { version = "1.7", features = ["derive"] }
-rand = "0.8"
-base64 = "0.22"
+rand = "0.10"
+base64 = "0.23"
 dirs = "6"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "now"] }
 tempfile = "3"
