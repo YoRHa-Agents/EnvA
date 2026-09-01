@@ -14,6 +14,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -155,7 +156,40 @@ jobs:
   npm-publish:
     name: publish npm packages
     needs: publish-release
-    uses: ./.github/workflows/npm-publish.yml
-    with:
-      tag: ${{ inputs.tag || github.ref_name }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      # npm's trusted publishing validates the *calling* workflow, so invoking
+      # npm-publish.yml through `workflow_call` presents release.yml as the
+      # OIDC subject and the registry rejects it with ENEEDAUTH. Dispatching it
+      # as a top-level run makes npm-publish.yml its own subject, which is what
+      # the configured trusted publisher expects. A package can only name one
+      # publisher, and the same entry has to keep serving manual re-dispatch.
+      - name: Dispatch npm publish and wait for it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run npm-publish.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            -f tag="$RELEASE_TAG"
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            sleep 5
+            run_id="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow npm-publish.yml \
+              --event workflow_dispatch \
+              --created ">=$started_at" \
+              --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            [[ -n "$run_id" ]] && break
+          done
+          if [[ -z "$run_id" ]]; then
+            echo "npm-publish.yml was dispatched but its run never appeared." >&2
+            exit 1
+          fi
+
+          echo "Watching https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status

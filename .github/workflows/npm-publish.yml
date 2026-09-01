@@ -1,11 +1,10 @@
 name: Publish npm packages
 
+# Deliberately dispatch-only. npm's trusted publishing validates the calling
+# workflow, so exposing workflow_call here lets a caller publish under its own
+# identity and the registry rejects it. release.yml dispatches this workflow
+# instead of calling it.
 on:
-  workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       tag:
