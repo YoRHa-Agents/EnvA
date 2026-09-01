@@ -1,17 +1,24 @@
 name: Publish npm packages
 
+# Deliberately dispatch-only. npm's trusted publishing validates the calling
+# workflow, so exposing workflow_call here lets a caller publish under its own
+# identity and the registry rejects it. release.yml dispatches this workflow
+# instead of calling it.
 on:
-  workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       tag:
         description: "Existing GitHub Release tag, for example v1.4.2"
         required: true
         type: string
+      correlation_id:
+        description: "Set by release.yml so it can identify this run; leave empty when dispatching by hand"
+        required: false
+        type: string
+
+run-name: >-
+  npm publish ${{ inputs.tag }}${{ inputs.correlation_id && format(' [{0}]',
+  inputs.correlation_id) || '' }}
 
 permissions:
   contents: read
