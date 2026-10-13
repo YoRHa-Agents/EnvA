@@ -21,7 +21,7 @@ secrecy = { version = "0.10", features = ["serde"] }
 zeroize = { version = "1.7", features = ["derive"] }
 rand = "0.10"
 base64 = "0.23"
-dirs = "6"
+dirs = "7"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "now"] }
 tempfile = "3"
 
