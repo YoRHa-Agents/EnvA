@@ -29,7 +29,7 @@ mime_guess = "2"
 
 jsonwebtoken = { version = "11", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 serde_yaml = "0.9"
-dirs = "6"
+dirs = "7"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "now"] }
 base64 = "0.23"
